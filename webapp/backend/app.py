@@ -68,6 +68,7 @@ async def register(request: Request):
         return JSONResponse({"error": "Email already registered"}, status_code=400)
 
     users[email] = _hash_pw(password)
+    logging.info(f"New user registered: {email}")
 
     session_id = uuid.uuid4().hex
     sessions[session_id] = {"email": email}
@@ -87,6 +88,7 @@ async def login(request: Request):
     if users[email] != _hash_pw(password):
         return JSONResponse({"error": "Wrong password"}, status_code=400)
 
+    logging.info(f"User logged in: {email}")
     session_id = uuid.uuid4().hex
     sessions[session_id] = {"email": email}
     resp = JSONResponse({"ok": True, "email": email})
@@ -113,12 +115,16 @@ async def index():
 
 @app.post("/api/jobs")
 async def create_job(
+    request: Request,
     audio: UploadFile = File(...),
     speaker_names: str = Form('{"0":"说话人A","1":"说话人B"}'),
     speaker_count: int = Form(2),
     prompt: str = Form(""),
 ):
     """Create a new voice-clone job."""
+    session_id = request.cookies.get("session_id")
+    email = sessions.get(session_id, {}).get("email", "unknown")
+
     job_id = uuid.uuid4().hex[:12]
     job_dir = JOBS_DIR / job_id
     job_dir.mkdir(parents=True)
@@ -141,7 +147,9 @@ async def create_job(
         "audio_path": str(audio_path),
         "output_path": None,
         "error": None,
+        "email": email,
     }
+    logging.info(f"Job {job_id} created by {email}")
 
     # Run pipeline in background
     asyncio.get_event_loop().run_in_executor(
@@ -177,8 +185,9 @@ def _run_job(
         )
         job["status"] = "completed"
         job["output_path"] = output
+        logging.info(f"Job {job_id} completed for {job.get('email', 'unknown')}")
     except Exception as e:
-        logging.exception(f"Job {job_id} failed")
+        logging.exception(f"Job {job_id} failed for {job.get('email', 'unknown')}")
         job["status"] = "failed"
         job["error"] = str(e)
         job["stage"] = "error"

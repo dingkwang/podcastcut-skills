@@ -1,9 +1,12 @@
 """Fish Audio voice clone and TTS service."""
 
+import logging
 import os
 from pathlib import Path
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 def list_models() -> list[dict]:
@@ -20,10 +23,11 @@ def list_models() -> list[dict]:
 
 def delete_model(model_id: str) -> None:
     api_key = os.environ["FISH_API_KEY"]
-    requests.delete(
+    resp = requests.delete(
         f"https://api.fish.audio/model/{model_id}",
         headers={"Authorization": f"Bearer {api_key}"},
     )
+    logger.info(f"Deleted voice model {model_id} (status={resp.status_code})")
 
 
 def ensure_model_slots(needed: int) -> None:

@@ -89,22 +89,31 @@ class Pipeline:
         models_path = self.job_dir / "voice_models.json"
         models_path.write_text(json.dumps(voice_models, ensure_ascii=False, indent=2))
 
-        # Stage 5: TTS generation
+        # Stage 5: TTS generation (wrapped in try/finally to ensure model cleanup)
         self._progress("generating_tts", "Generating audio segments...")
         tts_dir = self.job_dir / "tts_output"
         tts_dir.mkdir(exist_ok=True)
 
-        segments = corrected["segments"]
-        for i, seg in enumerate(segments):
-            model_id = voice_models.get(seg["speaker"])
-            if not model_id:
-                model_id = next(iter(voice_models.values()))
-            out_path = str(tts_dir / f"segment_{i + 1:03d}.mp3")
-            voice_clone.tts_generate(seg["text"], model_id, out_path)
-            self._progress(
-                "generating_tts",
-                f"  [{i + 1}/{len(segments)}] {seg['speaker']}: {seg['text'][:30]}...",
-            )
+        try:
+            segments = corrected["segments"]
+            for i, seg in enumerate(segments):
+                model_id = voice_models.get(seg["speaker"])
+                if not model_id:
+                    model_id = next(iter(voice_models.values()))
+                out_path = str(tts_dir / f"segment_{i + 1:03d}.mp3")
+                voice_clone.tts_generate(seg["text"], model_id, out_path)
+                self._progress(
+                    "generating_tts",
+                    f"  [{i + 1}/{len(segments)}] {seg['speaker']}: {seg['text'][:30]}...",
+                )
+        finally:
+            # Clean up voice models to free Fish Audio slots
+            self._progress("generating_tts", "Cleaning up voice models...")
+            for name, model_id in voice_models.items():
+                try:
+                    voice_clone.delete_model(model_id)
+                except Exception:
+                    logger.warning(f"Failed to delete voice model {model_id} for {name}")
 
         # Stage 6: Merge
         self._progress("merging", "Merging all segments...")
