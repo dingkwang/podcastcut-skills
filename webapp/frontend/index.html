@@ -33,7 +33,7 @@
   .upload-area .filename { color: #4a9; font-size: 14px; margin-top: 4px; }
   .upload-area input { display: none; }
 
-  input[type="text"], input[type="number"], input[type="email"], textarea {
+  input[type="text"], input[type="number"], input[type="email"], input[type="password"], textarea {
     width: 100%; padding: 10px 12px; border: 1px solid #333;
     border-radius: 8px; background: #151515; color: #e0e0e0;
     font-size: 14px; outline: none;
@@ -118,16 +118,19 @@
   <!-- Login Panel -->
   <div class="login-panel" id="loginPanel">
     <h2>PodcastCut Voice Clone</h2>
-    <p class="login-subtitle">请登录后使用</p>
-    <div class="login-row" id="emailRow">
-      <input type="email" id="loginEmail" placeholder="输入邮箱地址">
-      <button type="button" id="sendCodeBtn" onclick="sendCode()">发送验证码</button>
+    <p class="login-subtitle" id="loginSubtitle">登录</p>
+    <div class="login-row">
+      <input type="email" id="loginEmail" placeholder="邮箱地址">
     </div>
-    <div class="login-row hidden" id="codeRow">
-      <input type="text" id="loginCode" placeholder="输入 6 位验证码" maxlength="6">
+    <div class="login-row">
+      <input type="password" id="loginPassword" placeholder="密码（至少 6 位）">
     </div>
-    <button class="login-btn hidden" id="verifyBtn" onclick="verifyCode()">登录</button>
+    <button class="login-btn" id="authBtn" onclick="doAuth()">登录</button>
     <div class="login-msg" id="loginMsg"></div>
+    <p style="margin-top:12px;font-size:13px;color:#888;">
+      <span id="toggleText">没有账号？</span>
+      <a href="#" id="toggleLink" onclick="toggleMode(event)" style="color:#4a9;">注册</a>
+    </p>
   </div>
 
   <!-- Main App (hidden until logged in) -->
@@ -198,14 +201,25 @@
 const loginPanel = document.getElementById('loginPanel');
 const mainApp = document.getElementById('mainApp');
 const loginEmail = document.getElementById('loginEmail');
-const loginCode = document.getElementById('loginCode');
+const loginPassword = document.getElementById('loginPassword');
 const loginMsg = document.getElementById('loginMsg');
-const codeRow = document.getElementById('codeRow');
-const verifyBtn = document.getElementById('verifyBtn');
-const sendCodeBtn = document.getElementById('sendCodeBtn');
+const authBtn = document.getElementById('authBtn');
 const userEmail = document.getElementById('userEmail');
+const loginSubtitle = document.getElementById('loginSubtitle');
+const toggleText = document.getElementById('toggleText');
+const toggleLink = document.getElementById('toggleLink');
 
-let authEmail = '';
+let isRegisterMode = false;
+
+function toggleMode(e) {
+  e.preventDefault();
+  isRegisterMode = !isRegisterMode;
+  loginSubtitle.textContent = isRegisterMode ? '注册' : '登录';
+  authBtn.textContent = isRegisterMode ? '注册' : '登录';
+  toggleText.textContent = isRegisterMode ? '已有账号？' : '没有账号？';
+  toggleLink.textContent = isRegisterMode ? '登录' : '注册';
+  loginMsg.textContent = '';
+}
 
 async function checkAuth() {
   try {
@@ -228,62 +242,29 @@ function showMsg(text, isError) {
   loginMsg.className = 'login-msg ' + (isError ? 'error' : 'ok');
 }
 
-async function sendCode() {
+async function doAuth() {
   const email = loginEmail.value.trim();
+  const password = loginPassword.value;
   if (!email || !email.includes('@')) { showMsg('请输入有效邮箱', true); return; }
-  authEmail = email;
-  sendCodeBtn.disabled = true;
-  sendCodeBtn.textContent = '发送中...';
-  try {
-    const resp = await fetch('/api/auth/send-code', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({email}),
-    });
-    const data = await resp.json();
-    if (resp.ok) {
-      showMsg('验证码已发送，请查收邮件', false);
-      codeRow.classList.remove('hidden');
-      verifyBtn.classList.remove('hidden');
-      loginCode.focus();
-      // Cooldown
-      let cd = 60;
-      const timer = setInterval(() => {
-        cd--;
-        sendCodeBtn.textContent = `${cd}s`;
-        if (cd <= 0) { clearInterval(timer); sendCodeBtn.disabled = false; sendCodeBtn.textContent = '重新发送'; }
-      }, 1000);
-    } else {
-      showMsg(data.error || '发送失败', true);
-      sendCodeBtn.disabled = false;
-      sendCodeBtn.textContent = '发送验证码';
-    }
-  } catch (e) {
-    showMsg('网络错误', true);
-    sendCodeBtn.disabled = false;
-    sendCodeBtn.textContent = '发送验证码';
-  }
-}
+  if (password.length < 6) { showMsg('密码至少 6 位', true); return; }
 
-async function verifyCode() {
-  const code = loginCode.value.trim();
-  if (!code) { showMsg('请输入验证码', true); return; }
-  verifyBtn.disabled = true;
+  authBtn.disabled = true;
+  const url = isRegisterMode ? '/api/auth/register' : '/api/auth/login';
   try {
-    const resp = await fetch('/api/auth/verify', {
+    const resp = await fetch(url, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({email: authEmail, code}),
+      body: JSON.stringify({email, password}),
     });
     const data = await resp.json();
     if (resp.ok) {
       showMainApp(data.email);
     } else {
-      showMsg(data.error || '验证失败', true);
-      verifyBtn.disabled = false;
+      showMsg(data.error || '操作失败', true);
     }
   } catch (e) {
     showMsg('网络错误', true);
-    verifyBtn.disabled = false;
   }
+  authBtn.disabled = false;
 }
 
 function logout() {
@@ -291,14 +272,9 @@ function logout() {
   mainApp.classList.add('hidden');
   loginPanel.classList.remove('hidden');
   loginMsg.textContent = '';
-  codeRow.classList.add('hidden');
-  verifyBtn.classList.add('hidden');
-  sendCodeBtn.disabled = false;
-  sendCodeBtn.textContent = '发送验证码';
-  loginCode.value = '';
+  loginPassword.value = '';
 }
 
-// Check auth on page load
 checkAuth();
 
 // --- Main App ---

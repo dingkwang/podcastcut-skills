@@ -1,19 +1,16 @@
 """FastAPI app for voice-clone podcast service."""
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
-import random
-import string
-import time
 import uuid
 from pathlib import Path
 from typing import Optional
 
-import resend
 from dotenv import load_dotenv
-from fastapi import Cookie, FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
@@ -23,8 +20,6 @@ from pipeline import Pipeline
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
-
-resend.api_key = os.getenv("RESEND_API_KEY", "")
 
 app = FastAPI(title="PodcastCut Voice Clone")
 
@@ -36,13 +31,15 @@ JOBS_DIR.mkdir(exist_ok=True)
 # In-memory job state
 jobs: dict[str, dict] = {}
 
-# Auth state: email -> {code, expires_at}
-pending_codes: dict[str, dict] = {}
+# Auth state
+# email -> hashed_password
+users: dict[str, str] = {}
 # session_id -> {email, created_at}
 sessions: dict[str, dict] = {}
 
-CODE_TTL = 300  # 5 minutes
-CODE_LENGTH = 6
+
+def _hash_pw(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
 # --- Auth middleware ---
@@ -58,49 +55,40 @@ app.add_middleware(AuthMiddleware)
 
 
 # --- Auth routes ---
-@app.post("/api/auth/send-code")
-async def send_code(request: Request):
+@app.post("/api/auth/register")
+async def register(request: Request):
     body = await request.json()
     email = body.get("email", "").strip().lower()
+    password = body.get("password", "")
     if not email or "@" not in email:
         return JSONResponse({"error": "Invalid email"}, status_code=400)
+    if len(password) < 6:
+        return JSONResponse({"error": "Password must be at least 6 characters"}, status_code=400)
+    if email in users:
+        return JSONResponse({"error": "Email already registered"}, status_code=400)
 
-    code = "".join(random.choices(string.digits, k=CODE_LENGTH))
-    pending_codes[email] = {"code": code, "expires_at": time.time() + CODE_TTL}
+    users[email] = _hash_pw(password)
 
-    try:
-        resend.Emails.send({
-            "from": "PodcastCut <onboarding@resend.dev>",
-            "to": [email],
-            "subject": f"Your verification code: {code}",
-            "html": f"<p>Your verification code is: <strong>{code}</strong></p><p>Valid for 5 minutes.</p>",
-        })
-    except Exception as e:
-        logging.exception("Failed to send verification email")
-        return JSONResponse({"error": f"Failed to send email: {e}"}, status_code=500)
-
-    return {"ok": True}
+    session_id = uuid.uuid4().hex
+    sessions[session_id] = {"email": email}
+    resp = JSONResponse({"ok": True, "email": email})
+    resp.set_cookie("session_id", session_id, httponly=True, samesite="lax", max_age=86400 * 7)
+    return resp
 
 
-@app.post("/api/auth/verify")
-async def verify_code(request: Request):
+@app.post("/api/auth/login")
+async def login(request: Request):
     body = await request.json()
     email = body.get("email", "").strip().lower()
-    code = body.get("code", "").strip()
+    password = body.get("password", "")
 
-    entry = pending_codes.get(email)
-    if not entry:
-        return JSONResponse({"error": "No code sent for this email"}, status_code=400)
-    if time.time() > entry["expires_at"]:
-        pending_codes.pop(email, None)
-        return JSONResponse({"error": "Code expired"}, status_code=400)
-    if entry["code"] != code:
-        return JSONResponse({"error": "Wrong code"}, status_code=400)
+    if email not in users:
+        return JSONResponse({"error": "Email not registered"}, status_code=400)
+    if users[email] != _hash_pw(password):
+        return JSONResponse({"error": "Wrong password"}, status_code=400)
 
-    pending_codes.pop(email, None)
     session_id = uuid.uuid4().hex
-    sessions[session_id] = {"email": email, "created_at": time.time()}
-
+    sessions[session_id] = {"email": email}
     resp = JSONResponse({"ok": True, "email": email})
     resp.set_cookie("session_id", session_id, httponly=True, samesite="lax", max_age=86400 * 7)
     return resp
