@@ -33,7 +33,7 @@
   .upload-area .filename { color: #4a9; font-size: 14px; margin-top: 4px; }
   .upload-area input { display: none; }
 
-  input[type="text"], input[type="number"], textarea {
+  input[type="text"], input[type="number"], input[type="email"], textarea {
     width: 100%; padding: 10px 12px; border: 1px solid #333;
     border-radius: 8px; background: #151515; color: #e0e0e0;
     font-size: 14px; outline: none;
@@ -87,10 +87,55 @@
     background: #4a9; color: #fff; text-decoration: none; font-weight: 500;
   }
   .result-panel a:hover { background: #3b8; }
+
+  /* Login */
+  .login-panel {
+    max-width: 380px; margin: 0 auto; text-align: center;
+  }
+  .login-panel h2 { font-size: 22px; margin-bottom: 8px; color: #fff; }
+  .login-panel .login-subtitle { color: #888; font-size: 13px; margin-bottom: 24px; }
+  .login-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .login-row input { flex: 1; }
+  .login-row button, .login-panel .login-btn {
+    padding: 10px 18px; border: none; border-radius: 8px;
+    background: #4a9; color: #fff; font-size: 14px; font-weight: 500;
+    cursor: pointer; white-space: nowrap;
+  }
+  .login-row button:hover, .login-panel .login-btn:hover { background: #3b8; }
+  .login-row button:disabled, .login-panel .login-btn:disabled { background: #333; color: #666; cursor: not-allowed; }
+  .login-panel .login-btn { width: 100%; padding: 12px; font-size: 15px; }
+  .login-msg { font-size: 13px; margin-top: 8px; }
+  .login-msg.error { color: #e55; }
+  .login-msg.ok { color: #4a9; }
+  .user-bar { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-bottom: 16px; font-size: 13px; color: #888; }
+  .user-bar button { background: none; border: 1px solid #444; color: #aaa; padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .user-bar button:hover { border-color: #888; color: #fff; }
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
 <div class="container">
+  <!-- Login Panel -->
+  <div class="login-panel" id="loginPanel">
+    <h2>PodcastCut Voice Clone</h2>
+    <p class="login-subtitle">请登录后使用</p>
+    <div class="login-row" id="emailRow">
+      <input type="email" id="loginEmail" placeholder="输入邮箱地址">
+      <button type="button" id="sendCodeBtn" onclick="sendCode()">发送验证码</button>
+    </div>
+    <div class="login-row hidden" id="codeRow">
+      <input type="text" id="loginCode" placeholder="输入 6 位验证码" maxlength="6">
+    </div>
+    <button class="login-btn hidden" id="verifyBtn" onclick="verifyCode()">登录</button>
+    <div class="login-msg" id="loginMsg"></div>
+  </div>
+
+  <!-- Main App (hidden until logged in) -->
+  <div id="mainApp" class="hidden">
+  <div class="user-bar" id="userBar">
+    <span id="userEmail"></span>
+    <button onclick="logout()">退出登录</button>
+  </div>
   <h1>PodcastCut Voice Clone</h1>
   <p class="subtitle">上传音频 → AI 修正文字 → 声音克隆 → 输出干净音频</p>
 
@@ -145,9 +190,118 @@
     <br>
     <a id="downloadLink" href="#">下载音频</a>
   </div>
+  </div> <!-- /mainApp -->
 </div>
 
 <script>
+// --- Auth ---
+const loginPanel = document.getElementById('loginPanel');
+const mainApp = document.getElementById('mainApp');
+const loginEmail = document.getElementById('loginEmail');
+const loginCode = document.getElementById('loginCode');
+const loginMsg = document.getElementById('loginMsg');
+const codeRow = document.getElementById('codeRow');
+const verifyBtn = document.getElementById('verifyBtn');
+const sendCodeBtn = document.getElementById('sendCodeBtn');
+const userEmail = document.getElementById('userEmail');
+
+let authEmail = '';
+
+async function checkAuth() {
+  try {
+    const resp = await fetch('/api/auth/me');
+    const data = await resp.json();
+    if (data.logged_in) {
+      showMainApp(data.email);
+    }
+  } catch (e) {}
+}
+
+function showMainApp(email) {
+  loginPanel.classList.add('hidden');
+  mainApp.classList.remove('hidden');
+  userEmail.textContent = email;
+}
+
+function showMsg(text, isError) {
+  loginMsg.textContent = text;
+  loginMsg.className = 'login-msg ' + (isError ? 'error' : 'ok');
+}
+
+async function sendCode() {
+  const email = loginEmail.value.trim();
+  if (!email || !email.includes('@')) { showMsg('请输入有效邮箱', true); return; }
+  authEmail = email;
+  sendCodeBtn.disabled = true;
+  sendCodeBtn.textContent = '发送中...';
+  try {
+    const resp = await fetch('/api/auth/send-code', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email}),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      showMsg('验证码已发送，请查收邮件', false);
+      codeRow.classList.remove('hidden');
+      verifyBtn.classList.remove('hidden');
+      loginCode.focus();
+      // Cooldown
+      let cd = 60;
+      const timer = setInterval(() => {
+        cd--;
+        sendCodeBtn.textContent = `${cd}s`;
+        if (cd <= 0) { clearInterval(timer); sendCodeBtn.disabled = false; sendCodeBtn.textContent = '重新发送'; }
+      }, 1000);
+    } else {
+      showMsg(data.error || '发送失败', true);
+      sendCodeBtn.disabled = false;
+      sendCodeBtn.textContent = '发送验证码';
+    }
+  } catch (e) {
+    showMsg('网络错误', true);
+    sendCodeBtn.disabled = false;
+    sendCodeBtn.textContent = '发送验证码';
+  }
+}
+
+async function verifyCode() {
+  const code = loginCode.value.trim();
+  if (!code) { showMsg('请输入验证码', true); return; }
+  verifyBtn.disabled = true;
+  try {
+    const resp = await fetch('/api/auth/verify', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email: authEmail, code}),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      showMainApp(data.email);
+    } else {
+      showMsg(data.error || '验证失败', true);
+      verifyBtn.disabled = false;
+    }
+  } catch (e) {
+    showMsg('网络错误', true);
+    verifyBtn.disabled = false;
+  }
+}
+
+function logout() {
+  document.cookie = 'session_id=; max-age=0; path=/';
+  mainApp.classList.add('hidden');
+  loginPanel.classList.remove('hidden');
+  loginMsg.textContent = '';
+  codeRow.classList.add('hidden');
+  verifyBtn.classList.add('hidden');
+  sendCodeBtn.disabled = false;
+  sendCodeBtn.textContent = '发送验证码';
+  loginCode.value = '';
+}
+
+// Check auth on page load
+checkAuth();
+
+// --- Main App ---
 const uploadArea = document.getElementById('uploadArea');
 const audioFile = document.getElementById('audioFile');
 const fileName = document.getElementById('fileName');

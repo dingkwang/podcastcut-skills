@@ -5,4 +5,5 @@ python-dotenv==1.0.1
 google-genai==1.14.0
 requests==2.32.3
 aiofiles==24.1.0
-sse-starlette==3.3.2
+sse-starlette==2.2.1
+resend==2.23.0

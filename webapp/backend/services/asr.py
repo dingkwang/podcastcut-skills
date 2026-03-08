@@ -1,6 +1,7 @@
 """Gemini 3 Flash ASR transcription service."""
 
 import json
+import mimetypes
 import os
 import shutil
 import tempfile
@@ -46,8 +47,11 @@ def transcribe(audio_path: str, speaker_count: int = 2) -> dict:
 
     # Copy to ASCII-safe filename to avoid httpx encoding errors
     safe_path = _safe_copy(audio_path)
+    mime_type, _ = mimetypes.guess_type(audio_path)
+    if not mime_type:
+        mime_type = "audio/mp4"  # sensible default for .m4a etc.
     try:
-        audio_file = client.files.upload(file=safe_path)
+        audio_file = client.files.upload(file=safe_path, config={"mime_type": mime_type})
     finally:
         os.unlink(safe_path)
 

@@ -4,20 +4,27 @@ import asyncio
 import json
 import logging
 import os
+import random
+import string
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
 
+import resend
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import Cookie, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from pipeline import Pipeline
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
+
+resend.api_key = os.getenv("RESEND_API_KEY", "")
 
 app = FastAPI(title="PodcastCut Voice Clone")
 
@@ -29,10 +36,90 @@ JOBS_DIR.mkdir(exist_ok=True)
 # In-memory job state
 jobs: dict[str, dict] = {}
 
+# Auth state: email -> {code, expires_at}
+pending_codes: dict[str, dict] = {}
+# session_id -> {email, created_at}
+sessions: dict[str, dict] = {}
+
+CODE_TTL = 300  # 5 minutes
+CODE_LENGTH = 6
+
+
+# --- Auth middleware ---
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/api/jobs"):
+            session_id = request.cookies.get("session_id")
+            if not session_id or session_id not in sessions:
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        return await call_next(request)
+
+app.add_middleware(AuthMiddleware)
+
+
+# --- Auth routes ---
+@app.post("/api/auth/send-code")
+async def send_code(request: Request):
+    body = await request.json()
+    email = body.get("email", "").strip().lower()
+    if not email or "@" not in email:
+        return JSONResponse({"error": "Invalid email"}, status_code=400)
+
+    code = "".join(random.choices(string.digits, k=CODE_LENGTH))
+    pending_codes[email] = {"code": code, "expires_at": time.time() + CODE_TTL}
+
+    try:
+        resend.Emails.send({
+            "from": "PodcastCut <onboarding@resend.dev>",
+            "to": [email],
+            "subject": f"Your verification code: {code}",
+            "html": f"<p>Your verification code is: <strong>{code}</strong></p><p>Valid for 5 minutes.</p>",
+        })
+    except Exception as e:
+        logging.exception("Failed to send verification email")
+        return JSONResponse({"error": f"Failed to send email: {e}"}, status_code=500)
+
+    return {"ok": True}
+
+
+@app.post("/api/auth/verify")
+async def verify_code(request: Request):
+    body = await request.json()
+    email = body.get("email", "").strip().lower()
+    code = body.get("code", "").strip()
+
+    entry = pending_codes.get(email)
+    if not entry:
+        return JSONResponse({"error": "No code sent for this email"}, status_code=400)
+    if time.time() > entry["expires_at"]:
+        pending_codes.pop(email, None)
+        return JSONResponse({"error": "Code expired"}, status_code=400)
+    if entry["code"] != code:
+        return JSONResponse({"error": "Wrong code"}, status_code=400)
+
+    pending_codes.pop(email, None)
+    session_id = uuid.uuid4().hex
+    sessions[session_id] = {"email": email, "created_at": time.time()}
+
+    resp = JSONResponse({"ok": True, "email": email})
+    resp.set_cookie("session_id", session_id, httponly=True, samesite="lax", max_age=86400 * 7)
+    return resp
+
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    session_id = request.cookies.get("session_id")
+    if not session_id or session_id not in sessions:
+        return JSONResponse({"logged_in": False})
+    return {"logged_in": True, "email": sessions[session_id]["email"]}
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    frontend = Path(__file__).parent.parent / "frontend" / "index.html"
+    # Try sibling "frontend" dir (Docker), then parent's "frontend" dir (local dev)
+    frontend = Path(__file__).parent / "frontend" / "index.html"
+    if not frontend.exists():
+        frontend = Path(__file__).parent.parent / "frontend" / "index.html"
     return HTMLResponse(frontend.read_text(encoding="utf-8"))
 
 
