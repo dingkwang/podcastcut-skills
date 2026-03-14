@@ -21,7 +21,7 @@ from pipeline import Pipeline
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="PodcastCut Voice Clone")
+app = FastAPI(title="PodcastCut")
 
 UPLOAD_DIR = Path("uploads")
 JOBS_DIR = Path("jobs")
@@ -249,6 +249,32 @@ async def download_output(job_id: str):
     if not job or not job.get("output_path"):
         return JSONResponse({"error": "Output not ready"}, status_code=404)
     return FileResponse(job["output_path"], filename="podcast_voiceclone.mp3")
+
+
+@app.get("/api/jobs/{job_id}/download-upload")
+async def download_upload(job_id: str):
+    """Download the original uploaded audio."""
+    job = jobs.get(job_id)
+    if not job or not job.get("audio_path"):
+        return JSONResponse({"error": "Upload not found"}, status_code=404)
+    audio_path = Path(job["audio_path"])
+    return FileResponse(str(audio_path), filename=f"upload_{job_id}{audio_path.suffix}")
+
+
+@app.get("/api/admin/jobs")
+async def list_all_jobs():
+    """List all jobs with their metadata."""
+    return [
+        {
+            "id": j["id"],
+            "email": j.get("email", "unknown"),
+            "status": j["status"],
+            "stage": j.get("stage", ""),
+            "has_output": j.get("output_path") is not None,
+            "error": j.get("error"),
+        }
+        for j in jobs.values()
+    ]
 
 
 

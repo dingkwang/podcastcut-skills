@@ -1,13 +1,12 @@
-"""Gemini 3 Flash ASR transcription service."""
+"""ASR transcription service via OpenRouter (Gemini 3 Flash)."""
 
+import base64
 import json
 import mimetypes
 import os
-import shutil
-import tempfile
 from pathlib import Path
 
-from google import genai
+from openai import OpenAI
 
 
 TRANSCRIPT_PROMPT = """
@@ -24,17 +23,8 @@ TRANSCRIPT_PROMPT = """
 """
 
 
-def _safe_copy(audio_path: str) -> str:
-    """Copy file to a temp path with ASCII-safe name (Gemini SDK requirement)."""
-    suffix = Path(audio_path).suffix
-    tmp = tempfile.NamedTemporaryFile(suffix=suffix, prefix="audio_", delete=False)
-    tmp.close()
-    shutil.copy2(audio_path, tmp.name)
-    return tmp.name
-
-
 def transcribe(audio_path: str, speaker_count: int = 2) -> dict:
-    """Transcribe audio using Gemini 3 Flash.
+    """Transcribe audio using Gemini 3 Flash via OpenRouter.
 
     Args:
         audio_path: Local path to the audio file.
@@ -43,29 +33,44 @@ def transcribe(audio_path: str, speaker_count: int = 2) -> dict:
     Returns:
         Dict with 'sentences' list, each having text/start/end/spk.
     """
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.environ["OPENROUTER_API_KEY"],
+    )
 
-    # Copy to ASCII-safe filename to avoid httpx encoding errors
-    safe_path = _safe_copy(audio_path)
+    # Read and base64-encode the audio file
+    audio_bytes = Path(audio_path).read_bytes()
+    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
     mime_type, _ = mimetypes.guess_type(audio_path)
     if not mime_type:
-        mime_type = "audio/mp4"  # sensible default for .m4a etc.
-    try:
-        audio_file = client.files.upload(file=safe_path, config={"mime_type": mime_type})
-    finally:
-        os.unlink(safe_path)
+        mime_type = "audio/mp4"
 
     prompt = TRANSCRIPT_PROMPT
     if speaker_count > 1:
         prompt += f"\n说话人数量大约为 {speaker_count} 人。"
 
-    response = client.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=[prompt, audio_file],
+    response = client.chat.completions.create(
+        model="google/gemini-3-flash-preview",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "input_audio",
+                        "input_audio": {
+                            "data": audio_b64,
+                            "format": mime_type,
+                        },
+                    },
+                ],
+            },
+        ],
     )
 
     # Parse JSON from response
-    text = response.text.strip()
+    text = response.choices[0].message.content.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0]
 
