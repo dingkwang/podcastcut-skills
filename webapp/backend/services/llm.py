@@ -1,9 +1,9 @@
-"""Gemini API for transcript correction."""
+"""LLM-based transcript correction via OpenRouter."""
 
 import json
 import os
 
-from google import genai
+from openai import OpenAI
 
 
 SYSTEM_PROMPT = """你是一个专业的播客编辑。你的任务是审阅ASR转录的逐字稿，修正为干净、流畅的文字。
@@ -26,7 +26,7 @@ def correct_transcript(
     speaker_names: dict[str, str],
     user_prompt: str = "",
 ) -> dict:
-    """Use Gemini to correct the ASR transcript.
+    """Use LLM to correct the ASR transcript.
 
     Args:
         transcript: ASR result with 'sentences' list.
@@ -36,7 +36,10 @@ def correct_transcript(
     Returns:
         Dict with 'segments' list, each having speaker and text.
     """
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.environ["OPENROUTER_API_KEY"],
+    )
 
     # Build the transcript text for review
     lines = []
@@ -50,13 +53,16 @@ def correct_transcript(
     if user_prompt:
         user_message = f"用户要求：{user_prompt}\n\n{user_message}"
 
-    response = client.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=[f"{SYSTEM_PROMPT}\n\n{user_message}"],
+    response = client.chat.completions.create(
+        model="google/gemini-3-flash-preview",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
     )
 
     # Parse JSON from response
-    text = response.text.strip()
+    text = response.choices[0].message.content.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0]
 

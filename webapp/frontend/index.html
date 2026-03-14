@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PodcastCut Voice Clone</title>
+<title>PodcastCut</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -59,20 +59,12 @@
     padding: 20px; background: #111;
   }
   .progress-panel.active { display: block; }
-  .stage-list { list-style: none; }
-  .stage-list li {
-    padding: 8px 0; font-size: 13px; color: #555;
-    display: flex; align-items: center; gap: 8px;
+  .spinner {
+    width: 20px; height: 20px; border: 2px solid #333;
+    border-top-color: #4a9; border-radius: 50%;
+    animation: spin 0.8s linear infinite;
   }
-  .stage-list li.done { color: #4a9; }
-  .stage-list li.active { color: #fff; }
-  .stage-list li.error { color: #e55; }
-  .stage-list li::before { content: '○'; font-size: 10px; }
-  .stage-list li.done::before { content: '●'; color: #4a9; }
-  .stage-list li.active::before { content: '◉'; color: #4a9; animation: pulse 1s infinite; }
-  .stage-list li.error::before { content: '✕'; color: #e55; }
-  @keyframes pulse { 50% { opacity: 0.4; } }
-  .detail-text { font-size: 12px; color: #666; margin-top: 4px; word-break: break-all; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* Result */
   .result-panel {
@@ -117,7 +109,7 @@
 <div class="container">
   <!-- Login Panel -->
   <div class="login-panel" id="loginPanel">
-    <h2>PodcastCut Voice Clone</h2>
+    <h2>PodcastCut</h2>
     <p class="login-subtitle" id="loginSubtitle">登录</p>
     <div class="login-row">
       <input type="email" id="loginEmail" placeholder="邮箱地址">
@@ -139,8 +131,8 @@
     <span id="userEmail"></span>
     <button onclick="logout()">退出登录</button>
   </div>
-  <h1>PodcastCut Voice Clone</h1>
-  <p class="subtitle">上传音频 → AI 修正文字 → 声音克隆 → 输出干净音频</p>
+  <h1>PodcastCut</h1>
+  <p class="subtitle">上传音频 → AI 优化 → 输出干净音频</p>
 
   <form id="jobForm">
     <div class="form-group">
@@ -176,15 +168,10 @@
   </form>
 
   <div class="progress-panel" id="progressPanel">
-    <ul class="stage-list" id="stageList">
-      <li data-stage="transcribing">转录音频 (Gemini 3 Flash)</li>
-      <li data-stage="correcting">AI 修正逐字稿 (Gemini)</li>
-      <li data-stage="extracting_samples">提取说话人音频样本</li>
-      <li data-stage="creating_models">创建声音模型 (Fish Audio)</li>
-      <li data-stage="generating_tts">TTS 生成音频</li>
-      <li data-stage="merging">合并输出音频</li>
-    </ul>
-    <div class="detail-text" id="detailText"></div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="spinner" id="progressSpinner"></span>
+      <span id="progressLabel" style="font-size:14px;color:#ccc;">处理中...</span>
+    </div>
   </div>
 
   <div class="result-panel" id="resultPanel">
@@ -286,8 +273,7 @@ const speakerNames = document.getElementById('speakerNames');
 const form = document.getElementById('jobForm');
 const submitBtn = document.getElementById('submitBtn');
 const progressPanel = document.getElementById('progressPanel');
-const stageList = document.getElementById('stageList');
-const detailText = document.getElementById('detailText');
+const progressLabel = document.getElementById('progressLabel');
 const resultPanel = document.getElementById('resultPanel');
 
 // Upload area interactions
@@ -343,7 +329,7 @@ form.addEventListener('submit', async e => {
   submitBtn.textContent = '提交中...';
   progressPanel.classList.add('active');
   resultPanel.classList.remove('active');
-  resetStages();
+  progressLabel.textContent = '处理中...';
 
   try {
     const resp = await fetch('/api/jobs', { method: 'POST', body: fd });
@@ -356,47 +342,34 @@ form.addEventListener('submit', async e => {
   }
 });
 
-function resetStages() {
-  stageList.querySelectorAll('li').forEach(li => {
-    li.className = '';
-  });
-  detailText.textContent = '';
-}
-
-const STAGE_ORDER = ['transcribing','correcting','extracting_samples','creating_models','generating_tts','merging','done'];
-
-function updateStages(currentStage) {
-  const idx = STAGE_ORDER.indexOf(currentStage);
-  stageList.querySelectorAll('li').forEach(li => {
-    const si = STAGE_ORDER.indexOf(li.dataset.stage);
-    if (si < idx) li.className = 'done';
-    else if (si === idx) li.className = 'active';
-    else li.className = '';
-  });
-}
+const STAGE_LABELS = {
+  transcribing: '正在分析音频...',
+  correcting: '正在优化文稿...',
+  extracting_samples: '正在处理音频...',
+  creating_models: '正在准备语音...',
+  generating_tts: '正在生成音频...',
+  merging: '即将完成...',
+};
 
 function listenToJob(jobId) {
   const es = new EventSource(`/api/jobs/${jobId}/events`);
   es.addEventListener('progress', e => {
     const data = JSON.parse(e.data);
-    updateStages(data.stage);
-    detailText.textContent = data.detail;
+    progressLabel.textContent = STAGE_LABELS[data.stage] || '处理中...';
   });
   es.addEventListener('done', e => {
     es.close();
     const data = JSON.parse(e.data);
     if (data.status === 'completed') {
-      // Mark all done
-      stageList.querySelectorAll('li').forEach(li => li.className = 'done');
-      detailText.textContent = '';
+      progressPanel.classList.remove('active');
       // Show result
       resultPanel.classList.add('active');
       const url = `/api/jobs/${jobId}/download`;
       document.getElementById('audioPlayer').src = url;
       document.getElementById('downloadLink').href = url;
     } else {
-      stageList.querySelectorAll('li.active').forEach(li => li.className = 'error');
-      detailText.textContent = '❌ ' + (data.error || 'Unknown error');
+      progressLabel.textContent = '处理失败: ' + (data.error || '未知错误');
+      document.getElementById('progressSpinner').style.display = 'none';
     }
     submitBtn.disabled = false;
     submitBtn.textContent = '开始处理';
