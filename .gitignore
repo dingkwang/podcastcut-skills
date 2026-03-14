@@ -34,3 +34,5 @@ transcript_chars.json
 # Python version
 .python-version
 pyproject.toml
+tmp/
+webapp/backend/jobs/*
