@@ -24,6 +24,32 @@ WORKSPACES_ROOT = Path(os.environ.get("WORKSPACES_ROOT", "workspaces"))
 # Path to the directory containing .claude/skills/
 PLUGIN_DIR = Path(__file__).parent
 
+SKILLS_DIR = PLUGIN_DIR / ".claude" / "skills"
+
+
+def _discover_skills() -> list[str]:
+    """Read skill names from SKILL.md frontmatter in the skills directory."""
+    skills = []
+    if not SKILLS_DIR.is_dir():
+        return skills
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.is_file():
+            continue
+        try:
+            text = skill_md.read_text(encoding="utf-8")
+            for line in text.splitlines():
+                if line.startswith("name:"):
+                    skills.append(line.split(":", 1)[1].strip())
+                    break
+            else:
+                # Fallback to directory name
+                skills.append(skill_dir.name)
+        except Exception:
+            skills.append(skill_dir.name)
+    return skills
+
+
 SYSTEM_PROMPT = """你是一个播客后期制作助手。你可以帮助用户处理音频文件。
 
 你已经加载了播客后期制作相关的 skills，请根据用户需求灵活使用。
@@ -152,18 +178,31 @@ class PodcastAgent:
 
             # Stream responses
             async for message in client.receive_response():
+                logger.info("SDK message received: type=%s data=%s",
+                    type(message).__name__, repr(message)[:500])
+
                 if isinstance(message, SystemMessage):
-                    logger.info("SDK system message", extra={"subtype": message.subtype})
+                    if message.subtype == "init":
+                        skills = _discover_skills()
+                        logger.info("Skills loaded", extra={"skills": skills})
+                        yield {"type": "skills_loaded", "skills": skills}
+                    else:
+                        logger.info("SDK system message", extra={"subtype": message.subtype})
                     continue
 
                 if isinstance(message, ResultMessage):
                     if hasattr(message, "session_id") and message.session_id:
                         self._sessions[session_id] = message.session_id
+                    # Forward result text if present (e.g. /skills response)
+                    result_text = getattr(message, "result", None)
+                    if result_text:
+                        yield {"type": "text", "content": result_text}
                     logger.info(
                         "Query completed",
                         extra={
                             "session_id": session_id,
-                            "cost_usd": getattr(message, "cost_usd", 0),
+                            "cost_usd": getattr(message, "total_cost_usd", 0),
+                            "result_preview": (result_text or "")[:200],
                         },
                     )
                     continue

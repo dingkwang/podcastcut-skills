@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 
 interface Message {
-  role: 'user' | 'assistant' | 'tool'
+  role: 'user' | 'assistant' | 'tool' | 'system'
   content: string
 }
 
@@ -105,11 +105,13 @@ export default function ChatThread({ sessionId }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [skills, setSkills] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setMessages([])
+    setSkills([])
   }, [sessionId])
 
   useEffect(() => {
@@ -167,9 +169,10 @@ export default function ChatThread({ sessionId }: Props) {
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
 
+        let currentEvent = ''
         for (const line of lines) {
           if (line.startsWith('event: ')) {
-            const eventType = line.slice(7).trim()
+            currentEvent = line.slice(7).trim()
             continue
           }
           if (!line.startsWith('data: ')) continue
@@ -182,8 +185,10 @@ export default function ChatThread({ sessionId }: Props) {
             continue
           }
 
-          // Detect event type from the data structure
-          if (data.content !== undefined) {
+          if (currentEvent === 'skills_loaded') {
+            const loadedSkills = data.skills || []
+            setSkills(loadedSkills)
+          } else if (data.content !== undefined) {
             // Text event
             currentAssistant += data.content
             setMessages(prev => {
@@ -203,6 +208,7 @@ export default function ChatThread({ sessionId }: Props) {
             // Error event
             setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${data.message}` }])
           }
+          currentEvent = ''
         }
       }
     } catch (err) {
@@ -224,6 +230,30 @@ export default function ChatThread({ sessionId }: Props) {
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
 
       <div style={styles.messages}>
+        {skills.length > 0 && (
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 6,
+            padding: '8px 12px',
+            marginBottom: 12,
+            background: '#1a2235',
+            borderRadius: 8,
+            alignItems: 'center',
+          }}>
+            <span style={{ fontSize: 12, color: '#667', marginRight: 4 }}>Skills:</span>
+            {skills.map((skill, i) => (
+              <span key={i} style={{
+                fontSize: 11,
+                padding: '2px 8px',
+                background: '#0f3460',
+                borderRadius: 10,
+                color: '#8899bb',
+              }}>{skill}</span>
+            ))}
+          </div>
+        )}
+
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', color: '#666', marginTop: 60 }}>
             <div style={{ fontSize: 36, marginBottom: 12 }}>🎙️</div>

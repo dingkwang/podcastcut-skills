@@ -7,3 +7,7 @@ requests==2.32.3
 aiofiles==24.1.0
 sse-starlette==2.2.1
 claude-agent-sdk>=0.1.22
+librosa>=0.10.0
+numpy>=1.24.0
+soundfile>=0.12.0
+google-genai>=1.0.0

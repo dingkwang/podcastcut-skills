@@ -37,7 +37,7 @@ def _hash_pw(password: str) -> str:
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if path.startswith("/api/") and not path.startswith("/api/auth/"):
+        if path.startswith("/api/") and not path.startswith("/api/auth/") and not path.startswith("/api/debug/"):
             session_id = request.cookies.get("session_id")
             if not session_id or session_id not in sessions:
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
@@ -93,6 +93,27 @@ async def auth_me(request: Request):
     return {"logged_in": True, "email": sessions[session_id]["email"]}
 
 
+# --- Debug ---
+@app.get("/api/debug/skills")
+async def debug_skills():
+    """Return discovered skills (no auth required)."""
+    from agent import _discover_skills
+    return {"skills": _discover_skills()}
+
+
+@app.post("/api/debug/chat")
+async def debug_chat(request: Request):
+    """Send a message to the agent and return raw SDK events (no auth required)."""
+    body = await request.json()
+    message = body.get("message", "/skills")
+    session_id = f"debug_{uuid.uuid4().hex[:8]}"
+
+    events = []
+    async for event in podcast_agent.stream_response(session_id, message):
+        events.append(event)
+    return {"events": events}
+
+
 # --- Chat ---
 @app.post("/api/chat")
 async def chat(request: Request):
@@ -122,6 +143,9 @@ async def chat(request: Request):
                     "event": "tool_start",
                     "data": json.dumps({"tool": event["tool"], "description": event["description"]}),
                 }
+
+            elif event_type == "skills_loaded":
+                yield {"event": "skills_loaded", "data": json.dumps({"skills": event["skills"]})}
 
             elif event_type == "done":
                 if full_response:
