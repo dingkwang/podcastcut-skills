@@ -6,3 +6,4 @@ openai==1.82.0
 requests==2.32.3
 aiofiles==24.1.0
 sse-starlette==2.2.1
+claude-agent-sdk>=0.1.22

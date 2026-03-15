@@ -1,5 +1,9 @@
 # Claude Code
 .claude/
+# But track webapp skills
+!webapp/backend/.claude/
+!webapp/backend/.claude/skills/
+!webapp/backend/.claude/skills/**
 
 # Python
 *.pyc
@@ -35,4 +39,16 @@ transcript_chars.json
 .python-version
 pyproject.toml
 tmp/
+
+# Node
+node_modules/
+
+# Webapp runtime data
 webapp/backend/jobs/*
+webapp/backend/workspaces/
+
+# Old/backup files
+webapp/frontend/index.old.html
+
+# Docs (drafts)
+docs/

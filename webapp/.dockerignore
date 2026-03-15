@@ -1,0 +1,14 @@
+backend/.venv
+backend/__pycache__
+backend/services/__pycache__
+backend/jobs
+backend/uploads
+backend/workspaces
+backend/.env
+frontend/node_modules
+frontend/dist
+.git
+docs
+*.md
+!backend/skills/**/SKILL.md
+!backend/.claude-plugin/**

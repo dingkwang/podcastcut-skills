@@ -1,55 +1,48 @@
-"""FastAPI app for voice-clone podcast service."""
+"""FastAPI app for PodcastCut chat-based agent."""
 
-import asyncio
 import hashlib
 import json
 import logging
-import os
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import FastAPI, File, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from pipeline import Pipeline
+from agent import PodcastAgent
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="PodcastCut")
 
-UPLOAD_DIR = Path("uploads")
-JOBS_DIR = Path("jobs")
-UPLOAD_DIR.mkdir(exist_ok=True)
-JOBS_DIR.mkdir(exist_ok=True)
+podcast_agent = PodcastAgent()
 
-# In-memory job state
-jobs: dict[str, dict] = {}
+# Auth state (in-memory)
+users: dict[str, str] = {}  # email -> hashed_password
+sessions: dict[str, dict] = {}  # session_id -> {email}
 
-# Auth state
-# email -> hashed_password
-users: dict[str, str] = {}
-# session_id -> {email, created_at}
-sessions: dict[str, dict] = {}
+# Chat history (in-memory)
+chat_sessions: dict[str, list[dict]] = {}  # chat_session_id -> [{role, content}]
 
 
 def _hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-# --- Auth middleware ---
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.url.path.startswith("/api/jobs"):
+        path = request.url.path
+        if path.startswith("/api/") and not path.startswith("/api/auth/"):
             session_id = request.cookies.get("session_id")
             if not session_id or session_id not in sessions:
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
         return await call_next(request)
+
 
 app.add_middleware(AuthMiddleware)
 
@@ -68,8 +61,6 @@ async def register(request: Request):
         return JSONResponse({"error": "Email already registered"}, status_code=400)
 
     users[email] = _hash_pw(password)
-    logging.info(f"New user registered: {email}")
-
     session_id = uuid.uuid4().hex
     sessions[session_id] = {"email": email}
     resp = JSONResponse({"ok": True, "email": email})
@@ -82,13 +73,11 @@ async def login(request: Request):
     body = await request.json()
     email = body.get("email", "").strip().lower()
     password = body.get("password", "")
-
     if email not in users:
         return JSONResponse({"error": "Email not registered"}, status_code=400)
     if users[email] != _hash_pw(password):
         return JSONResponse({"error": "Wrong password"}, status_code=400)
 
-    logging.info(f"User logged in: {email}")
     session_id = uuid.uuid4().hex
     sessions[session_id] = {"email": email}
     resp = JSONResponse({"ok": True, "email": email})
@@ -104,179 +93,135 @@ async def auth_me(request: Request):
     return {"logged_in": True, "email": sessions[session_id]["email"]}
 
 
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    # Try sibling "frontend" dir (Docker), then parent's "frontend" dir (local dev)
-    frontend = Path(__file__).parent / "frontend" / "index.html"
-    if not frontend.exists():
-        frontend = Path(__file__).parent.parent / "frontend" / "index.html"
-    return HTMLResponse(frontend.read_text(encoding="utf-8"))
+# --- Chat ---
+@app.post("/api/chat")
+async def chat(request: Request):
+    """SSE stream of agent responses."""
+    body = await request.json()
+    chat_session_id = body.get("session_id", uuid.uuid4().hex[:12])
+    message = body.get("message", "")
 
+    if not message:
+        return JSONResponse({"error": "Message is required"}, status_code=400)
 
-@app.post("/api/jobs")
-async def create_job(
-    request: Request,
-    audio: UploadFile = File(...),
-    speaker_names: str = Form('{"0":"说话人A","1":"说话人B"}'),
-    speaker_count: int = Form(2),
-    prompt: str = Form(""),
-):
-    """Create a new voice-clone job."""
-    session_id = request.cookies.get("session_id")
-    email = sessions.get(session_id, {}).get("email", "unknown")
+    if chat_session_id not in chat_sessions:
+        chat_sessions[chat_session_id] = []
+    chat_sessions[chat_session_id].append({"role": "user", "content": message})
 
-    job_id = uuid.uuid4().hex[:12]
-    job_dir = JOBS_DIR / job_id
-    job_dir.mkdir(parents=True)
-
-    # Save uploaded audio with ASCII-safe filename
-    suffix = Path(audio.filename).suffix or ".mp3"
-    audio_path = job_dir / f"upload{suffix}"
-    content = await audio.read()
-    audio_path.write_bytes(content)
-
-    # Parse speaker names
-    names = json.loads(speaker_names)
-
-    # Initialize job state
-    jobs[job_id] = {
-        "id": job_id,
-        "status": "queued",
-        "stage": "",
-        "detail": "",
-        "audio_path": str(audio_path),
-        "output_path": None,
-        "error": None,
-        "email": email,
-    }
-    logging.info(f"Job {job_id} created by {email}")
-
-    # Run pipeline in background
-    asyncio.get_event_loop().run_in_executor(
-        None, _run_job, job_id, str(audio_path), names, speaker_count, prompt,
-    )
-
-    return {"job_id": job_id}
-
-
-def _run_job(
-    job_id: str,
-    audio_path: str,
-    speaker_names: dict,
-    speaker_count: int,
-    prompt: str,
-):
-    """Run the pipeline (blocking, runs in thread pool)."""
-    job = jobs[job_id]
-    job["status"] = "running"
-    job_dir = str(JOBS_DIR / job_id)
-
-    def on_progress(stage, detail):
-        job["stage"] = stage
-        job["detail"] = detail
-
-    try:
-        pipeline = Pipeline(job_dir, on_progress=on_progress)
-        output = pipeline.run(
-            audio_path=audio_path,
-            speaker_names=speaker_names,
-            speaker_count=speaker_count,
-            user_prompt=prompt,
-        )
-        job["status"] = "completed"
-        job["output_path"] = output
-        logging.info(f"Job {job_id} completed for {job.get('email', 'unknown')}")
-    except Exception as e:
-        logging.exception(f"Job {job_id} failed for {job.get('email', 'unknown')}")
-        job["status"] = "failed"
-        job["error"] = str(e)
-        job["stage"] = "error"
-        job["detail"] = str(e)
-
-
-@app.get("/api/jobs/{job_id}")
-async def get_job(job_id: str):
-    """Get job status."""
-    job = jobs.get(job_id)
-    if not job:
-        return JSONResponse({"error": "Job not found"}, status_code=404)
-    return job
-
-
-@app.get("/api/jobs/{job_id}/events")
-async def job_events(job_id: str):
-    """SSE stream for job progress."""
     async def event_generator():
-        last_detail = ""
-        while True:
-            job = jobs.get(job_id)
-            if not job:
-                yield {"event": "error", "data": "Job not found"}
-                break
+        full_response = []
+        async for event in podcast_agent.stream_response(chat_session_id, message):
+            event_type = event.get("type", "")
 
-            current = f"{job['stage']}:{job['detail']}"
-            if current != last_detail:
+            if event_type == "text":
+                yield {"event": "text", "data": json.dumps({"content": event["content"]})}
+                full_response.append(event["content"])
+
+            elif event_type == "tool_start":
                 yield {
-                    "event": "progress",
-                    "data": json.dumps({
-                        "status": job["status"],
-                        "stage": job["stage"],
-                        "detail": job["detail"],
-                    }),
+                    "event": "tool_start",
+                    "data": json.dumps({"tool": event["tool"], "description": event["description"]}),
                 }
-                last_detail = current
 
-            if job["status"] in ("completed", "failed"):
-                yield {
-                    "event": "done",
-                    "data": json.dumps({
-                        "status": job["status"],
-                        "output_path": job.get("output_path"),
-                        "error": job.get("error"),
-                    }),
-                }
-                break
+            elif event_type == "done":
+                if full_response:
+                    chat_sessions[chat_session_id].append({
+                        "role": "assistant",
+                        "content": "\n".join(full_response),
+                    })
+                yield {"event": "done", "data": json.dumps({"session_id": chat_session_id})}
 
-            await asyncio.sleep(1)
+            elif event_type == "error":
+                yield {"event": "error", "data": json.dumps({"message": event["message"]})}
 
     return EventSourceResponse(event_generator())
 
 
-@app.get("/api/jobs/{job_id}/download")
-async def download_output(job_id: str):
-    """Download the final audio."""
-    job = jobs.get(job_id)
-    if not job or not job.get("output_path"):
-        return JSONResponse({"error": "Output not ready"}, status_code=404)
-    return FileResponse(job["output_path"], filename="podcast_voiceclone.mp3")
+@app.post("/api/chat/new")
+async def new_chat():
+    session_id = uuid.uuid4().hex[:12]
+    chat_sessions[session_id] = []
+    return {"session_id": session_id}
 
 
-@app.get("/api/jobs/{job_id}/download-upload")
-async def download_upload(job_id: str):
-    """Download the original uploaded audio."""
-    job = jobs.get(job_id)
-    if not job or not job.get("audio_path"):
-        return JSONResponse({"error": "Upload not found"}, status_code=404)
-    audio_path = Path(job["audio_path"])
-    return FileResponse(str(audio_path), filename=f"upload_{job_id}{audio_path.suffix}")
-
-
-@app.get("/api/admin/jobs")
-async def list_all_jobs():
-    """List all jobs with their metadata."""
+@app.get("/api/chat/sessions")
+async def list_chat_sessions():
     return [
         {
-            "id": j["id"],
-            "email": j.get("email", "unknown"),
-            "status": j["status"],
-            "stage": j.get("stage", ""),
-            "has_output": j.get("output_path") is not None,
-            "error": j.get("error"),
+            "session_id": sid,
+            "message_count": len(msgs),
+            "preview": next((m["content"][:80] for m in msgs if m["role"] == "user"), ""),
         }
-        for j in jobs.values()
+        for sid, msgs in chat_sessions.items()
     ]
 
 
+@app.get("/api/chat/{session_id}/history")
+async def chat_history(session_id: str):
+    return chat_sessions.get(session_id, [])
+
+
+# --- File upload ---
+@app.post("/api/upload")
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    params = request.query_params
+    chat_session_id = params.get("session_id", uuid.uuid4().hex[:12])
+
+    workspace = podcast_agent._get_workspace(chat_session_id)
+    safe_name = Path(file.filename).name if file.filename else "upload"
+    file_path = workspace / safe_name
+
+    content = await file.read()
+    file_path.write_bytes(content)
+
+    return {
+        "ok": True,
+        "session_id": chat_session_id,
+        "file_name": safe_name,
+        "file_path": str(file_path),
+        "size": len(content),
+    }
+
+
+# --- Workspace ---
+@app.get("/api/workspace/{session_id}")
+async def list_workspace(session_id: str):
+    return podcast_agent.list_workspace_files(session_id)
+
+
+@app.get("/api/workspace/{session_id}/{filename:path}")
+async def get_workspace_file(session_id: str, filename: str):
+    workspace = podcast_agent._get_workspace(session_id)
+    file_path = workspace / filename
+
+    if not file_path.exists():
+        return JSONResponse({"error": "File not found"}, status_code=404)
+
+    try:
+        file_path.resolve().relative_to(workspace.resolve())
+    except ValueError:
+        return JSONResponse({"error": "Invalid path"}, status_code=403)
+
+    return FileResponse(str(file_path), filename=Path(filename).name)
+
+
+# --- Serve frontend ---
+static_dir = Path(__file__).parent / "static"
+if not static_dir.exists():
+    static_dir = Path(__file__).parent.parent / "frontend" / "dist"
+
+if static_dir.exists() and (static_dir / "index.html").exists():
+    # Mount assets if they exist
+    assets_dir = static_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        file_path = static_dir / full_path
+        if file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(static_dir / "index.html"))
 
 
 if __name__ == "__main__":
