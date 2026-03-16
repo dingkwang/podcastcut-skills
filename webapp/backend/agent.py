@@ -24,7 +24,7 @@ WORKSPACES_ROOT = Path(os.environ.get("WORKSPACES_ROOT", "workspaces"))
 # Path to the directory containing .claude/skills/
 PLUGIN_DIR = Path(__file__).parent
 
-SKILLS_DIR = PLUGIN_DIR / ".claude" / "skills"
+SKILLS_DIR = PLUGIN_DIR / "skills"
 
 
 def _discover_skills() -> list[str]:

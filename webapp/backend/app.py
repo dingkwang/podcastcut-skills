@@ -28,6 +28,7 @@ sessions: dict[str, dict] = {}  # session_id -> {email}
 
 # Chat history (in-memory)
 chat_sessions: dict[str, list[dict]] = {}  # chat_session_id -> [{role, content}]
+pending_uploads: dict[str, list[dict]] = {}  # chat_session_id -> [{file_name, size}]
 
 
 def _hash_pw(password: str) -> str:
@@ -127,11 +128,21 @@ async def chat(request: Request):
 
     if chat_session_id not in chat_sessions:
         chat_sessions[chat_session_id] = []
+
+    # Prepend pending file uploads to the user message sent to the agent
+    uploads = pending_uploads.pop(chat_session_id, [])
+    agent_message = message
+    if uploads:
+        file_lines = "\n".join(
+            f"- {u['file_name']} ({u['size'] / 1024:.1f}KB)" for u in uploads
+        )
+        agent_message = f"[用户上传了文件到工作区]\n{file_lines}\n\n{message}"
+
     chat_sessions[chat_session_id].append({"role": "user", "content": message})
 
     async def event_generator():
         full_response = []
-        async for event in podcast_agent.stream_response(chat_session_id, message):
+        async for event in podcast_agent.stream_response(chat_session_id, agent_message):
             event_type = event.get("type", "")
 
             if event_type == "text":
@@ -197,6 +208,12 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 
     content = await file.read()
     file_path.write_bytes(content)
+
+    # Track upload so next user message includes file context
+    pending_uploads.setdefault(chat_session_id, []).append({
+        "file_name": safe_name,
+        "size": len(content),
+    })
 
     return {
         "ok": True,

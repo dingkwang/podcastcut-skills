@@ -1,0 +1,8 @@
+{
+    "name": "podcastcut",
+    "description": "播客后期制作工具集：音频剪辑、静音裁剪、金句混音、质检、声音克隆",
+    "version": "1.0.0",
+    "author": {
+        "name": "PodcastCut"
+    }
+}

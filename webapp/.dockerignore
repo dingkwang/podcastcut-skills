@@ -10,5 +10,5 @@ frontend/dist
 .git
 docs
 *.md
-!backend/skills/**/SKILL.md
 !backend/.claude-plugin/**
+!backend/skills/**/SKILL.md
