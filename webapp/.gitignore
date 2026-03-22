@@ -1,0 +1,7 @@
+backend/.env
+backend/.env.fly
+backend/.venv/
+backend/workspaces/
+frontend/node_modules/
+frontend/dist/
+

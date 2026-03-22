@@ -26,6 +26,13 @@ sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
 
+def format_duration(seconds):
+    total_seconds = max(0, float(seconds))
+    minutes = int(total_seconds // 60)
+    remain = total_seconds - minutes * 60
+    return f"{minutes}分{remain:.1f}秒"
+
+
 def calc_fade_duration(segment_duration):
     """
     自适应淡入淡出时长，和片段长度挂钩。
@@ -438,14 +445,12 @@ def main():
     )
     final_duration = float(result.stdout.strip())
 
-    original_min = int(total_duration // 60)
-    final_min = int(final_duration // 60)
-    saved_min = original_min - final_min
-
     print("📈 剪辑效果:")
-    print(f"   原始时长: {original_min}分钟")
-    print(f"   精剪时长: {final_min}分钟")
-    print(f"   节省时间: {saved_min}分钟 ({saved_min/original_min*100:.1f}%)")
+    print(f"   原始时长: {format_duration(total_duration)}")
+    print(f"   精剪时长: {format_duration(final_duration)}")
+    saved_seconds = max(0.0, total_duration - final_duration)
+    saved_ratio = (saved_seconds / total_duration * 100) if total_duration > 0 else 0.0
+    print(f"   节省时间: {format_duration(saved_seconds)} ({saved_ratio:.1f}%)")
 
 
 if __name__ == '__main__':

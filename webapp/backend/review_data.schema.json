@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://podcastcut.local/review_data.schema.json",
+  "title": "PodcastCut Review Data",
+  "description": "Frontend-ready review payload aligned with the PodcastCut review canvas data model.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "audio_url",
+    "audio_duration",
+    "sentences",
+    "blocks",
+    "fineEdits"
+  ],
+  "properties": {
+    "audio_url": {
+      "type": "string",
+      "description": "Relative path to the workspace audio file for playback, for example output.mp3 or upload.m4a."
+    },
+    "audio_duration": {
+      "type": "number",
+      "minimum": 0
+    },
+    "sentences": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sentence"
+      }
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/block"
+      }
+    },
+    "fineEdits": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fineEdit"
+      }
+    }
+  },
+  "$defs": {
+    "word": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "t",
+        "s",
+        "e"
+      ],
+      "properties": {
+        "t": {
+          "type": "string"
+        },
+        "s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "e": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "sentenceFineEdit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "deleteText",
+        "keepText",
+        "reason",
+        "ds",
+        "de",
+        "enabled"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "deleteText": {
+          "type": "string"
+        },
+        "keepText": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "ds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "de": {
+          "type": "number",
+          "minimum": 0
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "sentence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "idx",
+        "speaker",
+        "text",
+        "startTime",
+        "endTime",
+        "timeStr",
+        "words",
+        "isAiDeleted"
+      ],
+      "properties": {
+        "idx": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "speaker": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "startTime": {
+          "type": "number",
+          "minimum": 0
+        },
+        "endTime": {
+          "type": "number",
+          "minimum": 0
+        },
+        "timeStr": {
+          "type": "string"
+        },
+        "words": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/word"
+          }
+        },
+        "isAiDeleted": {
+          "type": "boolean"
+        },
+        "deleteType": {
+          "type": "string"
+        },
+        "blockId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fineEdit": {
+          "$ref": "#/$defs/sentenceFineEdit"
+        }
+      }
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "range",
+        "type",
+        "topic",
+        "reason",
+        "duration",
+        "durationSeconds",
+        "startTime",
+        "enabled"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "range": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ]
+        },
+        "type": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "duration": {
+          "type": "string"
+        },
+        "durationSeconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "startTime": {
+          "type": "number",
+          "minimum": 0
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "fineEdit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sentenceIdx",
+        "type",
+        "deleteText",
+        "keepText",
+        "reason",
+        "ds",
+        "de",
+        "enabled"
+      ],
+      "properties": {
+        "sentenceIdx": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string"
+        },
+        "deleteText": {
+          "type": "string"
+        },
+        "keepText": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "ds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "de": {
+          "type": "number",
+          "minimum": 0
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
