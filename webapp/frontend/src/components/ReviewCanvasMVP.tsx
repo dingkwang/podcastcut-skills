@@ -53,6 +53,16 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#c46b17',
     border: '1px solid #ffd7b5',
   },
+  stageNotice: {
+    margin: '14px 20px 0',
+    padding: '10px 12px',
+    borderRadius: 14,
+    border: '1px solid #f1dfc7',
+    background: '#fff8f0',
+    color: '#8b6f5a',
+    fontSize: 12,
+    lineHeight: 1.55,
+  },
   refreshBtn: {
     border: '1px solid #f1d9be',
     borderRadius: 12,
@@ -236,6 +246,7 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
   const [cutError, setCutError] = useState('')
   const [isCutting, setIsCutting] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [stageText, setStageText] = useState('等待审查稿。上传音频并让 Claude 生成 review_data.json 后，这里会自动更新。')
 
   const loadReviewData = useCallback(
     async (resetWhenMissing = false) => {
@@ -264,11 +275,13 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
           fineEdits,
         })
         setSourceLabel('当前会话审查稿')
+        setStageText(`审查稿已加载：${sentences.length} 句，${blocks.length} 个删除块，${fineEdits.length} 个精剪点。`)
         return true
       } catch {
         if (resetWhenMissing) {
           setReviewData(emptyReviewData)
           setSourceLabel('等待审查稿')
+          setStageText('还没读取到 review_data.json。上传音频后，让 Claude 分析并生成审查稿，再点“刷新审查稿”。')
         }
         return false
       }
@@ -281,6 +294,7 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
     setCutAudioUrl('')
     setCutSummary('')
     setCutError('')
+    setStageText('正在等待 Claude 生成审查稿...')
 
     let cancelled = false
     let pollTimer: number | undefined
@@ -310,8 +324,12 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
   async function handleRefreshReview() {
     if (!sessionId || isRefreshing) return
     setIsRefreshing(true)
+    setStageText('正在刷新审查稿...')
     try {
-      await loadReviewData(true)
+      const found = await loadReviewData(true)
+      if (!found) {
+        setStageText('还没找到 review_data.json。Claude 可能仍在转录或生成审查稿。')
+      }
     } finally {
       setIsRefreshing(false)
     }
@@ -384,6 +402,7 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
     if (!sessionId || isCutting) return
     setIsCutting(true)
     setCutError('')
+    setStageText('正在剪辑音频，请稍候...')
     try {
       const resp = await fetch(`/api/review/${sessionId}/cut`, {
         method: 'POST',
@@ -398,8 +417,11 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
       setCutSummary(
         `已剪出 ${data.segments_count} 段，节省 ${formatDuration(Number(data.saved_duration || 0))}，成品时长 ${formatDuration(Number(data.output_duration || 0))}`
       )
+      setStageText('剪辑完成，右侧已经可以试听成品音频。')
     } catch (error) {
-      setCutError(error instanceof Error ? error.message : '剪辑失败')
+      const message = error instanceof Error ? error.message : '剪辑失败'
+      setCutError(message)
+      setStageText(`剪辑失败：${message}`)
     } finally {
       setIsCutting(false)
     }
@@ -431,6 +453,8 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
           <div style={styles.badge}>{sourceLabel}</div>
         </div>
       </div>
+
+      <div style={styles.stageNotice}>{stageText}</div>
 
       <div style={styles.body}>
         <aside style={styles.side}>

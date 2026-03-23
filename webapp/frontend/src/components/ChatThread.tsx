@@ -116,7 +116,10 @@ export default function ChatThread({ sessionId }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [skills, setSkills] = useState<string[]>([])
+  const [statusTone, setStatusTone] = useState<'info' | 'success' | 'error'>('info')
+  const [statusText, setStatusText] = useState('准备就绪。先上传音频，或直接输入消息。')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -163,6 +166,10 @@ export default function ChatThread({ sessionId }: Props) {
   useEffect(() => {
     setMessages([])
     setSkills([])
+    setStreaming(false)
+    setUploading(false)
+    setStatusTone('info')
+    setStatusText('准备就绪。先上传音频，或直接输入消息。')
     if (!sessionId) return
     fetch(`/api/chat/${sessionId}/history`)
       .then(r => r.json())
@@ -181,6 +188,9 @@ export default function ChatThread({ sessionId }: Props) {
     const file = e.target.files?.[0]
     if (!file || !sessionId) return
 
+    setUploading(true)
+    setStatusTone('info')
+    setStatusText(`正在上传 ${file.name}（${(file.size / 1024 / 1024).toFixed(1)}MB）...`)
     const optimisticId = `upload-${Date.now()}`
     setMessages(prev => [
       ...prev,
@@ -209,12 +219,18 @@ export default function ChatThread({ sessionId }: Props) {
         role: 'user',
         content: `Uploaded file: ${data.file_name} (${(data.size / 1024).toFixed(1)}KB)`,
       })
+      setStatusTone('success')
+      setStatusText(`上传成功：${data.file_name}。现在可以让 Claude 开始分析并生成审查稿。`)
     } catch (error) {
       replaceMessage(optimisticId, {
         id: optimisticId,
         role: 'user',
         content: `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       })
+      setStatusTone('error')
+      setStatusText(`上传失败：${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setUploading(false)
     }
 
     e.target.value = ''
@@ -225,6 +241,8 @@ export default function ChatThread({ sessionId }: Props) {
 
     const msg = input.trim()
     setInput('')
+    setStatusTone('info')
+    setStatusText('Claude 正在处理你的请求...')
     setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: msg }])
     setStreaming(true)
 
@@ -273,6 +291,8 @@ export default function ChatThread({ sessionId }: Props) {
           } else if (data.content !== undefined) {
             // Text event: 优先按“最新完整文本快照”合并，兼容少量纯增量事件
             currentAssistant = mergeAssistantText(currentAssistant, data.content)
+            setStatusTone('info')
+            setStatusText('Claude 正在回复...')
             setMessages(prev => {
               const updated = [...prev]
               const lastIdx = updated.length - 1
@@ -285,15 +305,23 @@ export default function ChatThread({ sessionId }: Props) {
             })
           } else if (data.description !== undefined) {
             // Tool start event
+            setStatusTone('info')
+            setStatusText(data.description)
             setMessages(prev => [...prev, { id: `tool-${Date.now()}`, role: 'tool', content: data.description }])
           } else if (data.message !== undefined) {
             // Error event
+            setStatusTone('error')
+            setStatusText(`处理失败：${data.message}`)
             setMessages(prev => [...prev, { id: `error-${Date.now()}`, role: 'assistant', content: `Error: ${data.message}` }])
           }
           currentEvent = ''
         }
       }
+      setStatusTone('success')
+      setStatusText('本轮处理完成。你可以继续提问，或去右侧刷新审查稿。')
     } catch (err) {
+      setStatusTone('error')
+      setStatusText(`连接失败：${err}`)
       setMessages(prev => [...prev, { id: `conn-${Date.now()}`, role: 'assistant', content: `Connection error: ${err}` }])
     } finally {
       setStreaming(false)
@@ -312,6 +340,30 @@ export default function ChatThread({ sessionId }: Props) {
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
 
       <div style={styles.messages}>
+        <div style={{
+          marginBottom: 14,
+          padding: '10px 12px',
+          borderRadius: 14,
+          border: statusTone === 'error'
+            ? '1px solid #f3c0a6'
+            : statusTone === 'success'
+              ? '1px solid #cfe7c8'
+              : '1px solid #f1dfc7',
+          background: statusTone === 'error'
+            ? '#fff3eb'
+            : statusTone === 'success'
+              ? '#f3fbef'
+              : '#fff8f0',
+          color: statusTone === 'error'
+            ? '#b45309'
+            : statusTone === 'success'
+              ? '#4d7c0f'
+              : '#8b6f5a',
+          fontSize: 12,
+          lineHeight: 1.5,
+        }}>
+          {statusText}
+        </div>
         {skills.length > 0 && (
           <div style={{
             display: 'flex',
@@ -387,7 +439,7 @@ export default function ChatThread({ sessionId }: Props) {
           onChange={handleUpload}
         />
         <button style={styles.uploadBtn} onClick={() => fileInputRef.current?.click()}>
-          ⤴
+          {uploading ? '…' : '⤴'}
         </button>
         <input
           style={styles.input}
@@ -395,14 +447,14 @@ export default function ChatThread({ sessionId }: Props) {
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="输入消息，或先上传音频..."
-          disabled={streaming}
+          disabled={streaming || uploading}
         />
         <button
-          style={{ ...styles.sendBtn, opacity: streaming ? 0.5 : 1 }}
+          style={{ ...styles.sendBtn, opacity: streaming || uploading ? 0.5 : 1 }}
           onClick={sendMessage}
-          disabled={streaming}
+          disabled={streaming || uploading}
         >
-          发送
+          {streaming ? '处理中...' : '发送'}
         </button>
       </div>
     </div>
