@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Generate review_data.json for the review canvas.
-
-Preferred ASR path:
-1. DashScope FunASR (via local review_asr.transcribe)
-2. OpenRouter Gemini fallback (inside local review_asr.transcribe)
-"""
+"""Generate review_data.json for the review canvas from ASR only."""
 
 from __future__ import annotations
 
@@ -19,7 +14,6 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from review_asr import transcribe
-from review_llm import correct_transcript
 from validate_review_data import fail
 
 
@@ -51,9 +45,8 @@ def _speaker_label(spk: int) -> str:
     return f"说话人{spk + 1}"
 
 
-def _build_review_data(audio_file: Path, transcript: dict, corrected: dict | None) -> dict:
+def _build_review_data(audio_file: Path, transcript: dict) -> dict:
     raw_sentences = transcript.get("sentences", []) or []
-    corrected_segments = (corrected or {}).get("segments", []) or []
     audio_duration = round(_probe_duration(audio_file), 2)
 
     sentences = []
@@ -62,20 +55,17 @@ def _build_review_data(audio_file: Path, transcript: dict, corrected: dict | Non
         end = float(sentence.get("end", start))
         spk = int(sentence.get("spk", 0) or 0)
         original_text = str(sentence.get("text", "") or "").strip()
-        corrected_text = original_text
-        if idx < len(corrected_segments):
-            corrected_text = str(corrected_segments[idx].get("text", "") or original_text).strip()
 
         sentence_entry = {
             "idx": idx,
             "speaker": _speaker_label(spk),
-            "text": corrected_text or original_text,
+            "text": original_text,
             "startTime": round(start, 3),
             "endTime": round(end, 3),
             "timeStr": _time_str(start),
             "words": [
                 {
-                    "t": corrected_text or original_text,
+                    "t": original_text,
                     "s": round(start, 3),
                     "e": round(end, 3),
                 }
@@ -97,7 +87,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate review_data.json for PodcastCut review canvas")
     parser.add_argument("audio_path", help="Path to the local audio file in the current workspace")
     parser.add_argument("--speakers", type=int, default=2, help="Expected speaker count")
-    parser.add_argument("--skip-correction", action="store_true", help="Skip transcript correction step")
     args = parser.parse_args()
 
     audio_file = Path(args.audio_path).resolve()
@@ -113,24 +102,7 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    corrected = None
-    if not args.skip_correction:
-        speaker_names = {}
-        for sentence in transcript.get("sentences", []) or []:
-            spk = int(sentence.get("spk", 0) or 0)
-            speaker_names[str(spk)] = _speaker_label(spk)
-
-        corrected = correct_transcript(
-            transcript=transcript,
-            speaker_names=speaker_names,
-        )
-        corrected_path = workspace / "corrected.json"
-        corrected_path.write_text(
-            json.dumps(corrected, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-    review_data = _build_review_data(audio_file, transcript, corrected)
+    review_data = _build_review_data(audio_file, transcript)
     review_path = workspace / "review_data.json"
     review_path.write_text(
         json.dumps(review_data, ensure_ascii=False, indent=2),
@@ -144,7 +116,6 @@ def main() -> int:
                 "source": transcript.get("source"),
                 "sentences": len(review_data.get("sentences", [])),
                 "transcript_path": str(transcript_path),
-                "corrected_path": str(workspace / "corrected.json") if corrected else None,
                 "review_path": str(review_path),
             },
             ensure_ascii=False,

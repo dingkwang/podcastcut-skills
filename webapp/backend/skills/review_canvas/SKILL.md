@@ -1,7 +1,7 @@
 ---
 name: review-canvas
 description: |
-  生成播客审查画布数据。根据当前工作区中的音频、转录、修正文稿、QA 报告和剪辑结果，
+  生成播客审查画布数据。根据当前工作区中的音频、转录、QA 报告和剪辑结果，
   产出固定格式的 review_data.json，供右侧审查画布直接读取。
   触发词：审查画布、review data、审查稿、生成播客审查
 triggers:
@@ -23,7 +23,7 @@ triggers:
 - 格式必须符合 `review_data.schema.json`
 - 文件必须是合法 JSON，不要加 Markdown 代码块或注释
 - `sentences`、`blocks`、`fineEdits` 的数据模型与 `podcastcutai` 审查画布一致
-- 优先使用本 skill 目录中的 DashScope FunASR 做真实转录；只有 DashScope 明确失败时，才允许回退到 OpenRouter Gemini 修正文稿/转录能力
+- 优先使用本 skill 目录中的 DashScope FunASR 做真实转录；只有 DashScope 明确失败时，才允许回退到 OpenRouter Gemini 转录能力
 - 不要临时探测 whisper、speech_recognition、sox 或其他随机工具
 - 只要 DashScope FunASR 或 OpenRouter Gemini 中至少一个可用，就不允许只生成空壳 `review_data.json`
 - 只有在你已经明确尝试过 DashScope FunASR，必要时也尝试过 OpenRouter Gemini，并拿到了可说明的失败原因时，才允许退回最小可用版本；此时必须把失败原因写给用户
@@ -34,7 +34,6 @@ triggers:
 
 - 原始或处理后的音频：`*.mp3`, `*.m4a`, `*.wav`
 - 转录：`transcript.json`
-- 修正文稿：`corrected.json`
 - 质检：`qa_signal.json`, `qa_ai.json`, `qa_report.json`
 - 剪辑片段：`delete_segments.json`
 
@@ -56,20 +55,16 @@ triggers:
    - 使用本 skill 目录中的 `review_asr.py`
    - DashScope FunASR 优先转录
    - 必要时回退到 OpenRouter Gemini
-   - 使用本 skill 目录中的 `review_llm.py`
    - 生成 `transcript.json`
-   - 生成 `corrected.json`
    - 生成 `review_data.json`
 4. 最后验证 `review_data.json`
 
 ## DashScope / OpenRouter 约束
 
-真实转录和修正文稿时，必须复用本 skill 目录中的实现：
+真实转录时，必须复用本 skill 目录中的实现：
 
 - 转录：
   `/Users/lincolnwang/podcastcut-skills/webapp/backend/skills/review_canvas/review_asr.py`
-- 修正文稿：
-  `/Users/lincolnwang/podcastcut-skills/webapp/backend/skills/review_canvas/review_llm.py`
 
 其中：
 
@@ -93,7 +88,6 @@ triggers:
 如果需要调用这些 backend 模块，应通过项目虚拟环境显式 import 它们，然后把结果落成：
 
 - `transcript.json`
-- `corrected.json`（可选但推荐）
 - `review_data.json`
 
 ## 目标结构
@@ -152,9 +146,9 @@ triggers:
 
 ## 生成策略
 
-1. 先尽可能从现有 `transcript.json` / `corrected.json` / QA 文件提取事实数据
+1. 先尽可能从现有 `transcript.json` / QA 文件提取事实数据
 2. 如果缺少 `transcript.json`，先调用 DashScope FunASR 真实转录；若它失败，再回退 OpenRouter Gemini
-3. `sentences` 必须优先来自真实转录结果；第一版允许 `blocks` 为空、`fineEdits` 为空，但不要让 `sentences` 为空
+3. `sentences` 必须优先来自真实转录结果；文本清理、删除建议、块和精剪判断由 Claude agent 自己完成；第一版允许 `blocks` 为空、`fineEdits` 为空，但不要让 `sentences` 为空
 4. 如果能识别明显无效段落，例如录前测试、技术调试、长静音、连续口头停顿，可以标成删除建议
 5. `audio_url` 尽量写当前 workspace 里实际存在的音频文件名，优先：
    - `output.mp3`
