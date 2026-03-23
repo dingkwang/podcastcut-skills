@@ -35,19 +35,19 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'rgba(255,255,255,0.72)',
   },
   title: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 700,
     color: '#2f241a',
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#8b6f5a',
     marginTop: 4,
   },
   badge: {
     padding: '7px 12px',
     borderRadius: 999,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 700,
     background: '#fff1e6',
     color: '#c46b17',
@@ -57,7 +57,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #f1d9be',
     borderRadius: 12,
     padding: '10px 12px',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 700,
     cursor: 'pointer',
     background: '#fffaf4',
@@ -89,7 +89,7 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 12px 30px rgba(131,94,59,0.06)',
   },
   panelTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 700,
     color: '#7c5c44',
     letterSpacing: '0.04em',
@@ -103,9 +103,15 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #f5dfc9',
   },
   audioMeta: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#7c5c44',
     marginBottom: 10,
+  },
+  speakerSummary: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
   },
   sentenceCard: {
     borderRadius: 18,
@@ -134,7 +140,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #efd5b6',
     borderRadius: 999,
     padding: '7px 10px',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 700,
     cursor: 'pointer',
     background: '#fffaf4',
@@ -146,21 +152,21 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#fff',
   },
   speakerChip: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 700,
     padding: '4px 10px',
     borderRadius: 999,
     color: '#fff',
   },
   timeChip: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#8b6f5a',
     background: '#f8efe4',
     padding: '4px 9px',
     borderRadius: 999,
   },
   deleteChip: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#b45309',
     background: '#fff0d8',
     padding: '4px 8px',
@@ -168,7 +174,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
   },
   sentenceText: {
-    fontSize: 16,
+    fontSize: 14,
     lineHeight: 1.7,
     color: '#2f241a',
   },
@@ -178,7 +184,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 14,
     background: '#fff6ea',
     color: '#9a5c10',
-    fontSize: 13,
+    fontSize: 12,
     border: '1px solid #ffe2bc',
   },
   empty: {
@@ -187,7 +193,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     height: '100%',
     color: '#8b6f5a',
-    fontSize: 15,
+    fontSize: 13,
     textAlign: 'center',
     padding: 40,
   },
@@ -322,6 +328,13 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
   }, [reviewData.fineEdits])
 
   const blockSummaries = useMemo(() => reviewData.blocks || [], [reviewData.blocks])
+  const speakerSummary = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const sentence of reviewData.sentences) {
+      counts.set(sentence.speaker, (counts.get(sentence.speaker) || 0) + 1)
+    }
+    return Array.from(counts.entries())
+  }, [reviewData.sentences])
   const canCut =
     sourceLabel === '当前会话审查稿' &&
     (reviewData.sentences.some(sentence => sentence.isAiDeleted) ||
@@ -428,8 +441,23 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
               {reviewData.audio_url ? (
                 <audio controls style={{ width: '100%' }} src={resolveAudioUrl(sessionId, reviewData.audio_url)} />
               ) : (
-                <div style={{ fontSize: 13, color: '#8b6f5a', lineHeight: 1.6 }}>
+                <div style={{ fontSize: 12, color: '#8b6f5a', lineHeight: 1.6 }}>
                   先让 Claude 生成真实审查稿；有了 `audio_url` 以后，这里会显示当前会话的音频播放器。
+                </div>
+              )}
+              {speakerSummary.length > 0 && (
+                <div style={styles.speakerSummary}>
+                  {speakerSummary.map(([speaker, count]) => (
+                    <span
+                      key={speaker}
+                      style={{
+                        ...styles.speakerChip,
+                        background: speakerColors[speaker] || '#6b7280',
+                      }}
+                    >
+                      {speaker} · {count}句
+                    </span>
+                  ))}
                 </div>
               )}
             </div>
@@ -445,7 +473,7 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
                 border: 'none',
                 borderRadius: 14,
                 padding: '12px 14px',
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: 700,
                 cursor: !canCut || isCutting ? 'not-allowed' : 'pointer',
                 background: !canCut || isCutting ? '#f4d9bf' : '#ea580c',
@@ -455,16 +483,16 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
             >
               {isCutting ? '剪辑中...' : '确认剪辑'}
             </button>
-            <div style={{ fontSize: 12, color: '#8b6f5a', marginTop: 10, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 11, color: '#8b6f5a', marginTop: 10, lineHeight: 1.6 }}>
               会按你当前在画布里启用的删除句子和精剪项生成成品音频。
             </div>
             {cutSummary && (
-              <div style={{ marginTop: 10, fontSize: 13, color: '#7c5c44', lineHeight: 1.6 }}>
+              <div style={{ marginTop: 10, fontSize: 12, color: '#7c5c44', lineHeight: 1.6 }}>
                 {cutSummary}
               </div>
             )}
             {cutError && (
-              <div style={{ marginTop: 10, fontSize: 13, color: '#b45309', lineHeight: 1.6 }}>
+              <div style={{ marginTop: 10, fontSize: 12, color: '#b45309', lineHeight: 1.6 }}>
                 {cutError}
               </div>
             )}
@@ -476,7 +504,7 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
               <div style={styles.audioCard}>
                 <div style={styles.audioMeta}>试听刚刚生成的成品音频</div>
                 <audio controls style={{ width: '100%' }} src={cutAudioUrl} />
-                <div style={{ marginTop: 10, fontSize: 12 }}>
+                <div style={{ marginTop: 10, fontSize: 11 }}>
                   <a href={cutAudioUrl} target="_blank" rel="noreferrer" style={{ color: '#c46b17', fontWeight: 700 }}>
                     打开成品音频
                   </a>
@@ -488,10 +516,10 @@ export default function ReviewCanvasMVP({ sessionId }: Props) {
           <div style={styles.panel}>
             <div style={styles.panelTitle}>粗剪块</div>
             {blockSummaries.length === 0 ? (
-              <div style={{ fontSize: 13, color: '#8b6f5a' }}>当前还没有删除块。等 Claude 把审查结果写进 `blocks` 后，这里会出现可开关的粗剪建议。</div>
+              <div style={{ fontSize: 12, color: '#8b6f5a' }}>当前还没有删除块。等 Claude 把审查结果写进 `blocks` 后，这里会出现可开关的粗剪建议。</div>
             ) : (
               blockSummaries.map((block: ReviewBlock) => (
-                <div key={block.id} style={{ marginBottom: 12, fontSize: 13, lineHeight: 1.6, color: '#614836' }}>
+                <div key={block.id} style={{ marginBottom: 12, fontSize: 12, lineHeight: 1.6, color: '#614836' }}>
                   <div style={{ fontWeight: 700, marginBottom: 4 }}>{block.type}</div>
                   <div>{block.reason}</div>
                   <div style={{ color: '#9a7f67', marginTop: 4 }}>范围 {block.range[0]} - {block.range[1]} · {block.duration}</div>

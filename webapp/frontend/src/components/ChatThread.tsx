@@ -33,7 +33,7 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: '80%',
     alignSelf: 'flex-end',
     marginLeft: 'auto',
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 1.6,
     color: '#3c2d20',
     boxShadow: '0 14px 30px rgba(255,152,87,0.12)',
@@ -45,7 +45,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '18px 18px 18px 6px',
     marginBottom: 14,
     maxWidth: '85%',
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 1.6,
     color: '#2f241a',
     boxShadow: '0 12px 28px rgba(124,92,68,0.06)',
@@ -56,7 +56,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '8px 12px',
     borderRadius: 14,
     marginBottom: 8,
-    fontSize: 13,
+    fontSize: 12,
     color: '#9a6c3b',
     display: 'flex',
     alignItems: 'center',
@@ -76,7 +76,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #f1d9be',
     borderRadius: 20,
     color: '#3c2d20',
-    fontSize: 15,
+    fontSize: 14,
     outline: 'none',
     boxShadow: 'inset 0 1px 2px rgba(81,55,33,0.03)',
   },
@@ -86,7 +86,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: 'none',
     borderRadius: 18,
     color: '#fff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 600,
     cursor: 'pointer',
     boxShadow: '0 10px 24px rgba(255,154,77,0.24)',
@@ -130,7 +130,30 @@ export default function ChatThread({ sessionId }: Props) {
     if (incomingText.startsWith(currentText)) return incomingText
     if (currentText.startsWith(incomingText)) return currentText
 
+    const maxOverlap = Math.min(currentText.length, incomingText.length)
+    for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+      if (currentText.endsWith(incomingText.slice(0, overlap))) {
+        return currentText + incomingText.slice(overlap)
+      }
+    }
+
     return currentText + incomingText
+  }
+
+  const dedupeHistory = (history: Array<{ role: 'user' | 'assistant'; content: string }>) => {
+    const cleaned: Message[] = []
+    for (const [index, item] of history.entries()) {
+      const last = cleaned[cleaned.length - 1]
+      if (last && last.role === item.role && last.content === item.content) {
+        continue
+      }
+      cleaned.push({
+        id: `history-${index}`,
+        role: item.role,
+        content: item.content,
+      })
+    }
+    return cleaned
   }
 
   const replaceMessage = (id: string, next: Message) => {
@@ -145,11 +168,7 @@ export default function ChatThread({ sessionId }: Props) {
       .then(r => r.json())
       .then((history: Array<{ role: 'user' | 'assistant'; content: string }>) => {
         if (!Array.isArray(history)) return
-        setMessages(history.map((item, index) => ({
-          id: `history-${index}`,
-          role: item.role,
-          content: item.content,
-        })))
+        setMessages(dedupeHistory(history))
       })
       .catch(() => {})
   }, [sessionId])
@@ -305,7 +324,7 @@ export default function ChatThread({ sessionId }: Props) {
             alignItems: 'center',
             border: '1px solid #f1dfc7',
           }}>
-            <span style={{ fontSize: 12, color: '#96704a', marginRight: 4 }}>Skills:</span>
+            <span style={{ fontSize: 11, color: '#96704a', marginRight: 4 }}>Skills:</span>
             {skills.map((skill, i) => (
               <span key={i} style={{
                 fontSize: 11,
@@ -321,9 +340,9 @@ export default function ChatThread({ sessionId }: Props) {
 
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', color: '#8b6f5a', marginTop: 72, padding: '0 24px' }}>
-            <div style={{ fontSize: 38, marginBottom: 14 }}>🎙️</div>
-            <div style={{ fontSize: 17, fontWeight: 600, color: '#3b2d1f' }}>上传音频并开始对话</div>
-            <div style={{ fontSize: 13, marginTop: 10, color: '#8b6f5a', lineHeight: 1.7 }}>
+            <div style={{ fontSize: 32, marginBottom: 14 }}>🎙️</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#3b2d1f' }}>上传音频并开始对话</div>
+            <div style={{ fontSize: 12, marginTop: 10, color: '#8b6f5a', lineHeight: 1.7 }}>
               这版先对齐 PodcastCut 的聊天体验。
               <br />
               后续 Claude 会在当前 workspace 中产出固定的 <code>review_data.json</code>。

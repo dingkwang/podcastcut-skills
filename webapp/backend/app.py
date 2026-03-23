@@ -169,7 +169,29 @@ def _merge_assistant_text(current_text: str, incoming_text: str) -> str:
         return incoming_text
     if current_text.startswith(incoming_text):
         return current_text
+
+    # Handle snapshot-like updates that repeat most of the previous text.
+    max_overlap = min(len(current_text), len(incoming_text))
+    for overlap in range(max_overlap, 0, -1):
+        if current_text.endswith(incoming_text[:overlap]):
+            return current_text + incoming_text[overlap:]
+
     return current_text + incoming_text
+
+
+def _append_history_message(session_id: str, role: str, content: str) -> None:
+    if session_id not in chat_sessions:
+        chat_sessions[session_id] = []
+
+    content = str(content or "")
+    if not content:
+        return
+
+    existing = chat_sessions[session_id]
+    if existing and existing[-1]["role"] == role and existing[-1]["content"] == content:
+        return
+
+    existing.append({"role": role, "content": content})
 
 
 def _run_cut_pipeline(workspace: Path, audio_file: str, delete_segments_file: str, output_file: str) -> subprocess.CompletedProcess[str]:
@@ -292,7 +314,7 @@ async def chat(request: Request):
         )
         agent_message = f"[用户上传了文件到工作区]\n{file_lines}\n\n{message}"
 
-    chat_sessions[chat_session_id].append({"role": "user", "content": message})
+    _append_history_message(chat_session_id, "user", message)
 
     async def event_generator():
         full_response = ""
@@ -314,10 +336,7 @@ async def chat(request: Request):
 
             elif event_type == "done":
                 if full_response:
-                    chat_sessions[chat_session_id].append({
-                        "role": "assistant",
-                        "content": full_response,
-                    })
+                    _append_history_message(chat_session_id, "assistant", full_response)
                 yield {"event": "done", "data": json.dumps({"session_id": chat_session_id})}
 
             elif event_type == "error":
@@ -355,6 +374,8 @@ async def chat_history(session_id: str):
 async def upload_file(request: Request, file: UploadFile = File(...)):
     params = request.query_params
     chat_session_id = params.get("session_id", uuid.uuid4().hex[:12])
+    if chat_session_id not in chat_sessions:
+        chat_sessions[chat_session_id] = []
 
     workspace = podcast_agent._get_workspace(chat_session_id)
     safe_name = Path(file.filename).name if file.filename else "upload"
@@ -368,6 +389,11 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         "file_name": safe_name,
         "size": len(content),
     })
+    _append_history_message(
+        chat_session_id,
+        "user",
+        f"Uploaded file: {safe_name} ({(len(content) / 1024):.1f}KB)",
+    )
 
     return {
         "ok": True,

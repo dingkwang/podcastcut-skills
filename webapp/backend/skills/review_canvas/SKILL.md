@@ -47,8 +47,16 @@ triggers:
 ```bash
 /Users/lincolnwang/podcastcut-skills/webapp/backend/.venv/bin/python \
   /Users/lincolnwang/podcastcut-skills/webapp/backend/skills/review_canvas/generate_review_data.py \
+  ./你的音频文件.m4a
+```
+
+如果用户已经明确告诉你说话人数，再追加参数，例如：
+
+```bash
+/Users/lincolnwang/podcastcut-skills/webapp/backend/.venv/bin/python \
+  /Users/lincolnwang/podcastcut-skills/webapp/backend/skills/review_canvas/generate_review_data.py \
   ./你的音频文件.m4a \
-  --speakers 2
+  --speakers 3
 ```
 
 3. 这个脚本会自动完成：
@@ -71,6 +79,7 @@ triggers:
 - `review_asr.py` 已经内置了优先级：`DashScope FunASR -> OpenRouter Gemini fallback`
 - 所以当你要转录时，应直接调用本 skill 里的实现，不要自己重新发明转录方式
 - 对 review 任务来说，优先调用本 skill 自带的 `generate_review_data.py`；它内部只调用本 skill 目录中的模块
+- 如果用户没有明确提供说话人数，不要硬编码 `--speakers 2`；优先让 DashScope 自行分离
 
 执行 Python 时统一使用：
 
