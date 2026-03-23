@@ -18,11 +18,15 @@ triggers:
 
 ## 必须遵守
 
+- 这是生成播客审查稿的首选 skill；当用户说“分析并生成审查稿 / 审查画布 / review data / 找出该删的内容”时，应直接使用本 skill
 - 输出文件固定为 `review_data.json`
 - 格式必须符合 `review_data.schema.json`
 - 文件必须是合法 JSON，不要加 Markdown 代码块或注释
 - `sentences`、`blocks`、`fineEdits` 的数据模型与 `podcastcutai` 审查画布一致
-- 即使信息不完整，也要输出一个最小可用版本，不允许因为缺字段而不写文件
+- 优先使用本 skill 目录中的 DashScope FunASR 做真实转录；只有 DashScope 明确失败时，才允许回退到 OpenRouter Gemini 修正文稿/转录能力
+- 不要临时探测 whisper、speech_recognition、sox 或其他随机工具
+- 只要 DashScope FunASR 或 OpenRouter Gemini 中至少一个可用，就不允许只生成空壳 `review_data.json`
+- 只有在你已经明确尝试过 DashScope FunASR，必要时也尝试过 OpenRouter Gemini，并拿到了可说明的失败原因时，才允许退回最小可用版本；此时必须把失败原因写给用户
 
 ## 推荐输入来源
 
@@ -33,6 +37,64 @@ triggers:
 - 修正文稿：`corrected.json`
 - 质检：`qa_signal.json`, `qa_ai.json`, `qa_report.json`
 - 剪辑片段：`delete_segments.json`
+
+## 固定执行路线
+
+生成真实审查稿时，按下面顺序执行，不要跳成“先写空稿再说”：
+
+1. 在 workspace 中定位主音频文件，优先：`*.m4a`、`*.mp3`、`*.wav`
+2. 直接执行本 skill 自带脚本生成真实审查稿，不要临时手写新脚本：
+
+```bash
+/Users/lincolnwang/podcastcut-skills/webapp/backend/.venv/bin/python \
+  /Users/lincolnwang/podcastcut-skills/webapp/backend/skills/review_canvas/generate_review_data.py \
+  ./你的音频文件.m4a \
+  --speakers 2
+```
+
+3. 这个脚本会自动完成：
+   - 使用本 skill 目录中的 `review_asr.py`
+   - DashScope FunASR 优先转录
+   - 必要时回退到 OpenRouter Gemini
+   - 使用本 skill 目录中的 `review_llm.py`
+   - 生成 `transcript.json`
+   - 生成 `corrected.json`
+   - 生成 `review_data.json`
+4. 最后验证 `review_data.json`
+
+## DashScope / OpenRouter 约束
+
+真实转录和修正文稿时，必须复用本 skill 目录中的实现：
+
+- 转录：
+  `/Users/lincolnwang/podcastcut-skills/webapp/backend/skills/review_canvas/review_asr.py`
+- 修正文稿：
+  `/Users/lincolnwang/podcastcut-skills/webapp/backend/skills/review_canvas/review_llm.py`
+
+其中：
+
+- `review_asr.py` 已经内置了优先级：`DashScope FunASR -> OpenRouter Gemini fallback`
+- 所以当你要转录时，应直接调用本 skill 里的实现，不要自己重新发明转录方式
+- 对 review 任务来说，优先调用本 skill 自带的 `generate_review_data.py`；它内部只调用本 skill 目录中的模块
+
+执行 Python 时统一使用：
+
+```bash
+/Users/lincolnwang/podcastcut-skills/webapp/backend/.venv/bin/python
+```
+
+不要：
+
+- 自己去找 `whisper`
+- 自己安装包
+- 用随机音频工具拼一个伪 transcript
+- 因为懒得转录就直接写 `sentences: []`
+
+如果需要调用这些 backend 模块，应通过项目虚拟环境显式 import 它们，然后把结果落成：
+
+- `transcript.json`
+- `corrected.json`（可选但推荐）
+- `review_data.json`
 
 ## 目标结构
 
@@ -90,24 +152,25 @@ triggers:
 
 ## 生成策略
 
-1. 先尽可能从现有 transcript / corrected / QA 文件提取事实数据
-2. 如果缺少完整分析结果，就先给出保守版本：
-   - `blocks` 可为空
-   - `fineEdits` 可为空
-   - `sentences` 仍然要尽量完整
-3. 如果能识别明显无效段落，例如录前测试、技术调试、长静音、连续口头停顿，可以标成删除建议
-4. `audio_url` 尽量写当前 workspace 里实际存在的音频文件名，优先：
+1. 先尽可能从现有 `transcript.json` / `corrected.json` / QA 文件提取事实数据
+2. 如果缺少 `transcript.json`，先调用 DashScope FunASR 真实转录；若它失败，再回退 OpenRouter Gemini
+3. `sentences` 必须优先来自真实转录结果；第一版允许 `blocks` 为空、`fineEdits` 为空，但不要让 `sentences` 为空
+4. 如果能识别明显无效段落，例如录前测试、技术调试、长静音、连续口头停顿，可以标成删除建议
+5. `audio_url` 尽量写当前 workspace 里实际存在的音频文件名，优先：
    - `output.mp3`
    - `podcast_edited.mp3`
    - `upload.mp3`
    - 其他实际存在的音频文件
+6. 如果 DashScope FunASR 和 OpenRouter Gemini 都实际失败，允许回退最小版；但必须在回复里明确写出失败原因，例如 API key 缺失、上传公网 URL 失败、DashScope 任务失败、OpenRouter 返回非 JSON、音频格式不支持等
 
 ## 生成后校验
 
 写完后必须再次读取并验证 `review_data.json`：
 
 ```bash
-python .claude/skills/review_canvas/validate_review_data.py review_data.json
+/Users/lincolnwang/podcastcut-skills/webapp/backend/.venv/bin/python \
+  /Users/lincolnwang/podcastcut-skills/webapp/backend/skills/review_canvas/validate_review_data.py \
+  review_data.json
 ```
 
 如果校验失败，继续修正直到合法。
