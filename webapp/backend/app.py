@@ -186,7 +186,12 @@ def _run_cut_pipeline(workspace: Path, audio_file: str, delete_segments_file: st
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if path.startswith("/api/") and not path.startswith("/api/auth/") and not path.startswith("/api/debug/"):
+        if (
+            path.startswith("/api/")
+            and not path.startswith("/api/auth/")
+            and not path.startswith("/api/debug/")
+            and path != "/api/health"
+        ):
             session_id = request.cookies.get("session_id")
             if not _verify_session(session_id):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
@@ -194,6 +199,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(AuthMiddleware)
+
+
+@app.get("/api/health")
+async def health():
+    """Lightweight health check for Fly machine readiness."""
+    return {"ok": True}
 
 
 # --- Auth routes ---
