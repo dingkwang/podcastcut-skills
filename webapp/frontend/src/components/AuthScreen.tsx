@@ -21,14 +21,14 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 4px 24px rgba(0,0,0,0.3)',
   },
   title: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 700,
     color: '#e94560',
     textAlign: 'center' as const,
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#999',
     textAlign: 'center' as const,
     marginBottom: 24,
@@ -41,7 +41,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #333',
     borderRadius: 6,
     color: '#e0e0e0',
-    fontSize: 14,
+    fontSize: 13,
     boxSizing: 'border-box' as const,
   },
   button: {
@@ -51,7 +51,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: 'none',
     borderRadius: 6,
     color: '#fff',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 600,
     cursor: 'pointer',
     marginTop: 4,
@@ -59,7 +59,7 @@ const styles: Record<string, React.CSSProperties> = {
   toggle: {
     textAlign: 'center' as const,
     marginTop: 16,
-    fontSize: 13,
+    fontSize: 12,
     color: '#999',
   },
   link: {
@@ -67,11 +67,11 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     background: 'none',
     border: 'none',
-    fontSize: 13,
+    fontSize: 12,
   },
   error: {
     color: '#ff6b6b',
-    fontSize: 13,
+    fontSize: 12,
     marginBottom: 12,
     textAlign: 'center' as const,
   },

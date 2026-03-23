@@ -112,7 +112,7 @@ def _parse_funasr_transcript(transcript: dict) -> dict:
     }
 
 
-def _transcribe_with_dashscope(audio_path: str, speaker_count: int) -> dict:
+def _transcribe_with_dashscope(audio_path: str, speaker_count: int | None) -> dict:
     dashscope_api_key = os.environ.get("DASHSCOPE_API_KEY", "")
     if not dashscope_api_key:
         raise RuntimeError("DASHSCOPE_API_KEY not set")
@@ -123,14 +123,17 @@ def _transcribe_with_dashscope(audio_path: str, speaker_count: int) -> dict:
         "Content-Type": "application/json",
         "X-DashScope-Async": "enable",
     }
+    parameters = {
+        "diarization_enabled": True,
+        "channel_id": [0],
+    }
+    if speaker_count and speaker_count > 0:
+        parameters["speaker_count"] = int(speaker_count)
+
     payload = {
         "model": "fun-asr",
         "input": {"file_urls": [audio_url]},
-        "parameters": {
-            "diarization_enabled": True,
-            "speaker_count": max(int(speaker_count or 1), 1),
-            "channel_id": [0],
-        },
+        "parameters": parameters,
     }
 
     submit_response = requests.post(
@@ -177,7 +180,7 @@ def _transcribe_with_dashscope(audio_path: str, speaker_count: int) -> dict:
     )
 
 
-def _transcribe_with_openrouter(audio_path: str, speaker_count: int = 2) -> dict:
+def _transcribe_with_openrouter(audio_path: str, speaker_count: int | None = None) -> dict:
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY not set")
@@ -187,7 +190,7 @@ def _transcribe_with_openrouter(audio_path: str, speaker_count: int = 2) -> dict
     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
     prompt = TRANSCRIPT_PROMPT
-    if speaker_count > 1:
+    if speaker_count and speaker_count > 1:
         prompt += f"\n说话人数量大约为 {speaker_count} 人。"
 
     response = client.chat.completions.create(
@@ -224,7 +227,7 @@ def _transcribe_with_openrouter(audio_path: str, speaker_count: int = 2) -> dict
     }
 
 
-def transcribe(audio_path: str, speaker_count: int = 2) -> dict:
+def transcribe(audio_path: str, speaker_count: int | None = None) -> dict:
     dashscope_error = None
     if os.environ.get("DASHSCOPE_API_KEY"):
         try:

@@ -9,9 +9,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
+
+BACKEND_DIR = SCRIPT_DIR.parent.parent
+load_dotenv(BACKEND_DIR / ".env")
+load_dotenv(BACKEND_DIR / ".env.fly", override=True)
 
 from review_asr import transcribe
 from validate_review_data import fail
@@ -43,6 +49,32 @@ def _time_str(seconds: float) -> str:
 
 def _speaker_label(spk: int) -> str:
     return f"说话人{spk + 1}"
+
+
+def _resolve_audio_file(audio_path_arg: str) -> Path:
+    requested = Path(audio_path_arg)
+    candidates = []
+
+    if requested.is_absolute():
+        candidates.append(requested)
+        candidates.append(Path.cwd() / requested.name)
+    else:
+        candidates.append(Path.cwd() / requested)
+        candidates.append(Path.cwd() / requested.name)
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except FileNotFoundError:
+            resolved = candidate
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.exists():
+            return candidate.resolve()
+
+    raise FileNotFoundError(f"Audio file not found: {audio_path_arg}")
 
 
 def _build_review_data(audio_file: Path, transcript: dict) -> dict:
@@ -86,16 +118,18 @@ def _build_review_data(audio_file: Path, transcript: dict) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate review_data.json for PodcastCut review canvas")
     parser.add_argument("audio_path", help="Path to the local audio file in the current workspace")
-    parser.add_argument("--speakers", type=int, default=2, help="Expected speaker count")
+    parser.add_argument("--speakers", type=int, default=0, help="Expected speaker count; omit or use 0 to infer automatically")
     args = parser.parse_args()
 
-    audio_file = Path(args.audio_path).resolve()
-    if not audio_file.exists():
-        return fail(f"Audio file not found: {audio_file}")
+    try:
+        audio_file = _resolve_audio_file(args.audio_path)
+    except FileNotFoundError as exc:
+        return fail(str(exc))
 
     workspace = audio_file.parent
 
-    transcript = transcribe(str(audio_file), speaker_count=args.speakers)
+    speaker_count = args.speakers if args.speakers and args.speakers > 0 else None
+    transcript = transcribe(str(audio_file), speaker_count=speaker_count)
     transcript_path = workspace / "transcript.json"
     transcript_path.write_text(
         json.dumps(transcript, ensure_ascii=False, indent=2),
