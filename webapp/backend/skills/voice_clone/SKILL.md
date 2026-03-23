@@ -59,6 +59,13 @@ Step 6: 合并音频片段 → 成品播客音频
   webapp-e2e-40s.m4a --speakers 2
 ```
 
+完整编排入口在：
+
+```bash
+/Users/lincolnwang/podcastcut-skills/webapp/backend/.venv/bin/python \
+  /Users/lincolnwang/podcastcut-skills/webapp/backend/skills/voice_clone/scripts/pipeline.py
+```
+
 ## Step 1: 转录
 
 ```bash

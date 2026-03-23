@@ -8,23 +8,33 @@ from pathlib import Path
 import requests
 
 
-def ensure_model_slots(api_key: str, needed: int) -> None:
-    """Delete existing models if we need room (free tier limit = 3)."""
+def list_models(api_key: str) -> list[dict]:
     resp = requests.get(
         "https://api.fish.audio/model",
         headers={"Authorization": f"Bearer {api_key}"},
         params={"self": "true", "page_size": 10},
     )
     resp.raise_for_status()
-    models = resp.json().get("items", [])
+    return resp.json().get("items", [])
+
+
+def delete_model(model_id: str) -> None:
+    api_key = os.environ["FISH_API_KEY"]
+    resp = requests.delete(
+        f"https://api.fish.audio/model/{model_id}",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    resp.raise_for_status()
+
+
+def ensure_model_slots(api_key: str, needed: int) -> None:
+    """Delete existing models if we need room (free tier limit = 3)."""
+    models = list_models(api_key)
 
     to_free = len(models) + needed - 3
     if to_free > 0:
         for m in models[:to_free]:
-            requests.delete(
-                f"https://api.fish.audio/model/{m['_id']}",
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
+            delete_model(m["_id"])
             print(f"Deleted old model {m['_id']} ({m.get('title', '')}) to free slot")
 
 
